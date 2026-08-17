@@ -204,7 +204,12 @@ class PowerCellEngine {
             "Bold" { $cell.IsBold = [bool]$propValue }
             "Italic" { $cell.IsItalic = [bool]$propValue }
             "FontFamily" { $cell.FontFamily = [string]$propValue }
-            "FontSize" { $cell.FontSize = [double]$propValue }
+            "FontSize" {
+                [double]$sz = 0
+                if ([double]::TryParse([string]$propValue, [ref]$sz)) {
+                    $cell.FontSize = $sz
+                }
+            }
             "Align" { $cell.Align = [string]$propValue }
             "VAlign" { $cell.VAlign = [string]$propValue }
             "NumberFormat" { $cell.NumberFormat = [string]$propValue }
@@ -1234,8 +1239,19 @@ function Apply-FormatToSelectedCells([string]$propName, $propValue) {
                     $col = $gridSpreadsheet.Columns[$c - 1] -as [System.Windows.Controls.DataGridTextColumn]
                     if ($null -ne $col) {
                         switch ($propName) {
-                            "FontFamily" { $col.FontFamily = [System.Windows.Media.FontFamily]::new([string]$propValue) }
-                            "FontSize"   { $col.FontSize = [double]$propValue }
+                            "FontFamily" {
+                                $fontStr = if ($propValue -is [System.Windows.Controls.ComboBoxItem]) { $propValue.Content.ToString() } else { [string]$propValue }
+                                if (-not [string]::IsNullOrEmpty($fontStr)) {
+                                    $col.FontFamily = [System.Windows.Media.FontFamily]::new($fontStr)
+                                }
+                            }
+                            "FontSize" {
+                                [double]$sz = 0
+                                $strVal = if ($propValue -is [System.Windows.Controls.ComboBoxItem]) { $propValue.Content.ToString() } else { [string]$propValue }
+                                if ([double]::TryParse($strVal, [ref]$sz)) {
+                                    $col.FontSize = $sz
+                                }
+                            }
                         }
                     }
                 }
@@ -1341,13 +1357,20 @@ $btnItalic.add_Click({ Apply-FormatToSelectedCells "Italic" $btnItalic.IsChecked
 
 $cmbFontFamily.add_SelectionChanged({
     if ($cmbFontFamily.SelectedItem) {
-        Apply-FormatToSelectedCells "FontFamily" [string]$cmbFontFamily.SelectedItem
+        $fontName = if ($cmbFontFamily.SelectedItem -is [System.Windows.Controls.ComboBoxItem]) { $cmbFontFamily.SelectedItem.Content.ToString() } else { $cmbFontFamily.SelectedItem.ToString() }
+        if (-not [string]::IsNullOrEmpty($fontName)) {
+            Apply-FormatToSelectedCells "FontFamily" $fontName
+        }
     }
 })
 
 $cmbFontSize.add_SelectionChanged({
     if ($cmbFontSize.SelectedItem) {
-        Apply-FormatToSelectedCells "FontSize" [double]$cmbFontSize.SelectedItem
+        $valStr = if ($cmbFontSize.SelectedItem -is [System.Windows.Controls.ComboBoxItem]) { $cmbFontSize.SelectedItem.Content.ToString() } else { $cmbFontSize.SelectedItem.ToString() }
+        [double]$fontSize = 0
+        if ([double]::TryParse($valStr, [ref]$fontSize)) {
+            Apply-FormatToSelectedCells "FontSize" $fontSize
+        }
     }
 })
 
