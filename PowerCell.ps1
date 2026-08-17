@@ -1,10 +1,10 @@
 ﻿<#
 .SYNOPSIS
-    PowerCell - High-Performance WPF Excel Spreadsheet Editor in PowerShell
+    PowerCell - Streamlined WPF Excel Spreadsheet Editor with Authentic Sort & Filter
 .DESCRIPTION
-    A self-contained Windows WPF GUI spreadsheet application optimized for 60 FPS snappiness
-    with UI row/column virtualization, in-place DataTable cell updates, multi-currency support,
-    text positioning, sorting, and reactive formulas.
+    A self-contained Windows WPF GUI spreadsheet application with an authentic Excel
+    Sort & Filter dropdown menu, column header click sorting, live filter bar,
+    multi-currency formatting, text positioning, and reactive formulas.
 .EXAMPLE
     .\PowerCell.ps1
 .EXAMPLE
@@ -569,7 +569,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
     }
 }
 
-# Clean & Virtualized WPF XAML Layout
+# Authentic Office Ribbon Layout with Sort & Filter Dropdown
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -775,7 +775,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
                     </Grid>
                 </Border>
 
-                <!-- Group 6: Editing -->
+                <!-- Group 6: Editing & Authentic Sort/Filter -->
                 <Border BorderBrush="#333333" BorderThickness="0,0,1,0" Padding="6,0,8,0" Margin="0,0,4,0">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -788,10 +788,18 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
                                 <Button Name="btnAvg" Content="x̄ Average" Style="{StaticResource OfficeToolBtn}"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
-                                <Button Name="btnSortAsc" Content="A➔Z" Style="{StaticResource OfficeToolBtn}"/>
-                                <Button Name="btnSortDesc" Content="Z➔A" Style="{StaticResource OfficeToolBtn}"/>
-                                <TextBox Name="txtFilter" Width="70" Padding="2,1" Margin="2,0" VerticalAlignment="Center" ToolTip="Filter rows"/>
-                                <Button Name="btnClearFilter" Content="✖" Style="{StaticResource OfficeToolBtn}"/>
+                                <Button Name="btnSortFilterMenu" Content="AZ 🌁 Sort &amp; Filter ▾" Style="{StaticResource OfficeToolBtn}">
+                                    <Button.ContextMenu>
+                                        <ContextMenu Background="#252525" Foreground="#FFFFFF" BorderBrush="#555555">
+                                            <MenuItem Name="menuSortAsc" Header="Sort A to Z" Foreground="#FFFFFF"/>
+                                            <MenuItem Name="menuSortDesc" Header="Sort Z to A" Foreground="#FFFFFF"/>
+                                            <Separator Background="#444444"/>
+                                            <MenuItem Name="menuClearFilter" Header="Clear Filter" Foreground="#FFFFFF"/>
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
+                                </Button>
+                                <TextBox Name="txtFilter" Width="65" Padding="2,1" Margin="2,0" VerticalAlignment="Center" ToolTip="Search filter rows"/>
+                                <Button Name="btnClearFilter" Content="✖" Style="{StaticResource OfficeToolBtn}" ToolTip="Clear search filter"/>
                             </StackPanel>
                         </StackPanel>
                         <TextBlock Grid.Row="1" Text="Editing" Foreground="#A1A1A1" FontSize="11" HorizontalAlignment="Center" Margin="0,2,0,0"/>
@@ -822,7 +830,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
 
         <!-- 4. High-Performance Virtualized Data Grid -->
         <DataGrid Name="gridSpreadsheet" Grid.Row="3" AutoGenerateColumns="False" 
-                  CanUserAddRows="False" CanUserDeleteRows="False" GridLinesVisibility="All"
+                  CanUserAddRows="False" CanUserDeleteRows="False" CanUserSortColumns="True" GridLinesVisibility="All"
                   HorizontalGridLinesBrush="#333333" VerticalGridLinesBrush="#333333"
                   HeadersVisibility="All" RowHeaderWidth="50" RowHeight="24"
                   Background="#121212" Foreground="#FFFFFF" SelectionMode="Extended" SelectionUnit="Cell"
@@ -838,6 +846,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
                     <Setter Property="BorderBrush" Value="#3B3B3B"/>
                     <Setter Property="BorderThickness" Value="0,0,1,1"/>
                     <Setter Property="Padding" Value="4"/>
+                    <Setter Property="Cursor" Value="Hand"/>
                 </Style>
                 <Style TargetType="DataGridRowHeader">
                     <Setter Property="Background" Value="#252525"/>
@@ -878,49 +887,52 @@ $reader = [System.Xml.XmlNodeReader]::new($xaml)
 $window = [System.Windows.Markup.XamlReader]::Load($reader)
 
 # Get UI Control References
-$gridSpreadsheet = $window.FindName("gridSpreadsheet")
-$txtNameBox      = $window.FindName("txtNameBox")
-$txtFormula      = $window.FindName("txtFormula")
-$txtFileName     = $window.FindName("txtFileName")
-$txtStatus       = $window.FindName("txtStatus")
-$txtCalcSummary  = $window.FindName("txtCalcSummary")
+$gridSpreadsheet    = $window.FindName("gridSpreadsheet")
+$txtNameBox         = $window.FindName("txtNameBox")
+$txtFormula         = $window.FindName("txtFormula")
+$txtFileName        = $window.FindName("txtFileName")
+$txtStatus          = $window.FindName("txtStatus")
+$txtCalcSummary     = $window.FindName("txtCalcSummary")
 
-$btnSave         = $window.FindName("btnSave")
-$btnOpen         = $window.FindName("btnOpen")
-$btnExportExcel  = $window.FindName("btnExportExcel")
-$btnBold         = $window.FindName("btnBold")
-$btnItalic       = $window.FindName("btnItalic")
+$btnSave            = $window.FindName("btnSave")
+$btnOpen            = $window.FindName("btnOpen")
+$btnExportExcel     = $window.FindName("btnExportExcel")
+$btnBold            = $window.FindName("btnBold")
+$btnItalic          = $window.FindName("btnItalic")
 
-$btnAlignTop     = $window.FindName("btnAlignTop")
-$btnAlignMid     = $window.FindName("btnAlignMid")
-$btnAlignBot     = $window.FindName("btnAlignBot")
-$btnAlignLeft    = $window.FindName("btnAlignLeft")
-$btnAlignCenter  = $window.FindName("btnAlignCenter")
-$btnAlignRight   = $window.FindName("btnAlignRight")
+$btnAlignTop        = $window.FindName("btnAlignTop")
+$btnAlignMid        = $window.FindName("btnAlignMid")
+$btnAlignBot        = $window.FindName("btnAlignBot")
+$btnAlignLeft       = $window.FindName("btnAlignLeft")
+$btnAlignCenter     = $window.FindName("btnAlignCenter")
+$btnAlignRight      = $window.FindName("btnAlignRight")
 
-$cmbNumFormat    = $window.FindName("cmbNumFormat")
+$cmbNumFormat       = $window.FindName("cmbNumFormat")
 
-$btnCurrUSD      = $window.FindName("btnCurrUSD")
-$btnCurrEUR      = $window.FindName("btnCurrEUR")
-$btnCurrGBP      = $window.FindName("btnCurrGBP")
-$btnCurrJPY      = $window.FindName("btnCurrJPY")
-$btnPercent      = $window.FindName("btnPercent")
+$btnCurrUSD         = $window.FindName("btnCurrUSD")
+$btnCurrEUR         = $window.FindName("btnCurrEUR")
+$btnCurrGBP         = $window.FindName("btnCurrGBP")
+$btnCurrJPY         = $window.FindName("btnCurrJPY")
+$btnPercent         = $window.FindName("btnPercent")
 
-$btnSortAsc      = $window.FindName("btnSortAsc")
-$btnSortDesc     = $window.FindName("btnSortDesc")
-$txtFilter       = $window.FindName("txtFilter")
-$btnClearFilter  = $window.FindName("btnClearFilter")
-$btnToggleZebra  = $window.FindName("btnToggleZebra")
+$btnSortFilterMenu  = $window.FindName("btnSortFilterMenu")
+$menuSortAsc        = $window.FindName("menuSortAsc")
+$menuSortDesc       = $window.FindName("menuSortDesc")
+$menuClearFilter    = $window.FindName("menuClearFilter")
 
-$btnInsertRow    = $window.FindName("btnInsertRow")
-$btnDeleteRow    = $window.FindName("btnDeleteRow")
-$btnSum          = $window.FindName("btnSum")
-$btnAvg          = $window.FindName("btnAvg")
-$btnQuickSave    = $window.FindName("btnQuickSave")
-$btnQuickOpen    = $window.FindName("btnQuickOpen")
-$btnNewSheet     = $window.FindName("btnNewSheet")
+$txtFilter          = $window.FindName("txtFilter")
+$btnClearFilter     = $window.FindName("btnClearFilter")
+$btnToggleZebra     = $window.FindName("btnToggleZebra")
 
-# DataTable & Columns Setup (Constructed & Pre-allocated once)
+$btnInsertRow       = $window.FindName("btnInsertRow")
+$btnDeleteRow       = $window.FindName("btnDeleteRow")
+$btnSum             = $window.FindName("btnSum")
+$btnAvg             = $window.FindName("btnAvg")
+$btnQuickSave       = $window.FindName("btnQuickSave")
+$btnQuickOpen       = $window.FindName("btnQuickOpen")
+$btnNewSheet        = $window.FindName("btnNewSheet")
+
+# DataTable & Columns Setup
 $table = [System.Data.DataTable]::new("Spreadsheet")
 $maxC = [math]::Max(20, $engine.MaxCol)
 $maxR = [math]::Max(50, $engine.MaxRow)
@@ -936,14 +948,13 @@ for ($c = 1; $c -le $maxC; $c++) {
     $gridSpreadsheet.Columns.Add($dgCol)
 }
 
-# Pre-populate rows ONCE (Avoids clearing & re-allocating DataRows)
 for ($r = 1; $r -le $maxR; $r++) {
     [void]$table.Rows.Add($table.NewRow())
 }
 
 $gridSpreadsheet.ItemsSource = $table.DefaultView
 
-# Fast In-Place Data Refresh Function (< 2ms execution time)
+# Fast Data Refresh Function
 function Refresh-GridUI {
     $filterText = $txtFilter.Text.Trim().ToLower()
 
@@ -965,14 +976,6 @@ function Refresh-GridUI {
     }
 }
 
-# Fast Single-Cell UI Update Function (< 0.1ms)
-function Update-SingleCellUI([int]$col, [int]$row) {
-    if ($row -ge 1 -and $row -le $maxR -and $col -ge 1 -and $col -le $maxC) {
-        $colName = Convert-ColIndexToName $col
-        $table.Rows[$row - 1][$colName] = $engine.GetDisplayValue($col, $row)
-    }
-}
-
 # Attach Row Header Numbers (1..N) & Apply Zebra Styling
 $gridSpreadsheet.add_LoadingRow({
     param($sender, $e)
@@ -984,7 +987,7 @@ $gridSpreadsheet.add_LoadingRow({
     }
 })
 
-# Selected Cells Changed Handler (Optimized Range & Summary calculation)
+# Selected Cells Changed Handler
 $gridSpreadsheet.add_SelectedCellsChanged({
     $selectedCount = $gridSpreadsheet.SelectedCells.Count
     if ($selectedCount -gt 0) {
@@ -1081,7 +1084,6 @@ function Apply-FormatToSelectedCells([string]$propName, $propValue) {
             }
         }
         
-        # Apply Column Alignment to DataGridColumn
         if ($propName -eq "Align") {
             $colIndex = $gridSpreadsheet.Columns.IndexOf($gridSpreadsheet.SelectedCells[0].Column)
             if ($colIndex -ge 0) {
@@ -1163,24 +1165,49 @@ $btnCurrGBP.add_Click({ Apply-FormatToSelectedCells "NumberFormat" "Currency_GBP
 $btnCurrJPY.add_Click({ Apply-FormatToSelectedCells "NumberFormat" "Currency_JPY" })
 $btnPercent.add_Click({ Apply-FormatToSelectedCells "NumberFormat" "Percent" })
 
-# Sorting & Filtering Actions
-$btnSortAsc.add_Click({
+# Authentic Sort & Filter Ribbon Menu
+$btnSortFilterMenu.add_Click({
+    $btnSortFilterMenu.ContextMenu.IsOpen = $true
+})
+
+$menuSortAsc.add_Click({
     if ($txtNameBox.Text) {
         $coords = Convert-CellNameToCoords $txtNameBox.Text
         $engine.SortByColumn($coords.Col, $true)
         Refresh-GridUI
         $colName = Convert-ColIndexToName $coords.Col
-        $txtStatus.Text = "Sorted column $colName Ascending (A ➔ Z)."
+        $txtStatus.Text = "Sorted column $colName Ascending (A to Z)."
     }
 })
 
-$btnSortDesc.add_Click({
+$menuSortDesc.add_Click({
     if ($txtNameBox.Text) {
         $coords = Convert-CellNameToCoords $txtNameBox.Text
         $engine.SortByColumn($coords.Col, $false)
         Refresh-GridUI
         $colName = Convert-ColIndexToName $coords.Col
-        $txtStatus.Text = "Sorted column $colName Descending (Z ➔ A)."
+        $txtStatus.Text = "Sorted column $colName Descending (Z to A)."
+    }
+})
+
+$menuClearFilter.add_Click({
+    $txtFilter.Text = ""
+    Refresh-GridUI
+    $txtStatus.Text = "Filter cleared."
+})
+
+# Column Header Click Sorting Handler
+$gridSpreadsheet.add_Sorting({
+    param($sender, $e)
+    $e.Handled = $true
+    $colIndex = $gridSpreadsheet.Columns.IndexOf($e.Column) + 1
+    if ($colIndex -gt 0) {
+        $sortAscending = ($e.Column.SortDirection -ne [System.ComponentModel.ListSortDirection]::Ascending)
+        $engine.SortByColumn($colIndex, $sortAscending)
+        $e.Column.SortDirection = if ($sortAscending) { [System.ComponentModel.ListSortDirection]::Ascending } else { [System.ComponentModel.ListSortDirection]::Descending }
+        Refresh-GridUI
+        $colName = Convert-ColIndexToName $colIndex
+        $txtStatus.Text = "Sorted column $colName $(if ($sortAscending) { 'A to Z' } else { 'Z to A' })."
     }
 })
 
@@ -1196,6 +1223,7 @@ $txtFilter.add_TextChanged({
 $btnClearFilter.add_Click({
     $txtFilter.Text = ""
     Refresh-GridUI
+    $txtStatus.Text = "Filter cleared."
 })
 
 $btnToggleZebra.add_Click({
