@@ -1,4 +1,4 @@
-# PowerCell Excel 📊
+# PowerCell📊
 
 > **PowerCell** is a high-performance, lightweight, single-file PowerShell application that delivers an authentic **Microsoft Excel GUI experience** to any Windows environment—without requiring Microsoft Office!
 
@@ -55,13 +55,41 @@ cd C:\dev\PowerCell
 
 | Feature | Ribbon Group | Description |
 | :--- | :--- | :--- |
-| **File / Clipboard** | `Clipboard` | **Save**, **Open**, and **Export to XLSX** |
-| **Font Formatting** | `Font` | Font Family, Size, **Bold** (`B`), *Italic* (`I`), **Table Zebra Style** |
-| **Text Positioning** | `Alignment` | **Top**, **Mid**, **Bot** vertical align & **Left**, **Center**, **Right** horizontal align |
-| **Currencies** | `Number & Currencies` | Quick currency toggle for **$ USD**, **€ EUR**, **£ GBP**, **¥ JPY**, and **%** |
-| **Row Management** | `Cells` | **➕ Insert Row** and **➖ Delete Row** at selected cell position |
-| **AutoSum & Sorting** | `Editing` | **∑ AutoSum**, **x̄ Average**, **Sort A➔Z / Z➔A**, and **Filter** box |
-| **Range Calculation** | Status Bar | Displays live **Sum**, **Average**, and **Count** for selected cell range |
+| **Edit Cell** | Double-Click cell or select & edit in Formula Bar | Updates raw value or formula |
+| **Commit Formula** | Press `Enter` in Formula Bar or Cell | Triggers live formula evaluation across grid |
+| **Save File** | `💾 Save (Ctrl+S)` or Quick Access Bar | Saves changes to CSV / XLSX |
+| **Open File** | `📂 Open File` | Load CSV, TSV, or XLSX spreadsheets |
+| **Insert Row** | `➕ Add Row` | Inserts a new row at selected cursor position |
+| **Delete Row** | `➖ Delete Row` | Deletes row at selected cursor position |
+| **Insert Column** | `➕ Add Column` | Adds a new column |
+| **AutoSum** | `∑ AutoSum` | Automatically generates `=SUM(col1:colN)` |
+| **AutoAverage** | `x̄ Average` | Automatically generates `=AVG(col1:colN)` |
+
+---
+
+## 📁 Repository Structure
+
+```
+PowerCell/
+├── PowerCell.ps1     # 100% Standalone Single-File Application
+├── powercell.cmd     # Double-click Batch Launcher
+├── sample_data.csv   # Sample dataset for quick testing
+├── screenshot.png    # GUI Screenshot
+└── tests/            # Automated Unit Test Suite
+    ├── TestEngine.ps1
+    └── TestFormats.ps1
+```
+
+---
+
+## 🧪 Testing
+
+Run the included unit tests to verify formula evaluation and format conversion:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tests\TestEngine.ps1
+powershell -ExecutionPolicy Bypass -File .\tests\TestFormats.ps1
+```
 
 ---
 
