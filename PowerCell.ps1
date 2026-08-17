@@ -1,10 +1,10 @@
 ﻿<#
 .SYNOPSIS
-    PowerCell - Streamlined WPF Excel Spreadsheet Editor with System Font Selection
+    PowerCell - Streamlined WPF Excel Spreadsheet Editor with Cell Styles & Colors
 .DESCRIPTION
-    A self-contained Windows WPF GUI spreadsheet application dynamically populated with all
-    installed system fonts, font sizes, authentic Excel Sort & Filter menu, multi-currencies,
-    text positioning, and reactive formulas.
+    A self-contained Windows WPF GUI spreadsheet application with authentic Excel
+    Cell Styles (Good, Bad, Neutral, Accents), Fill Colors, Table Themes, System Fonts,
+    Sort & Filter, Multi-Currencies, and Reactive Formulas.
 .EXAMPLE
     .\PowerCell.ps1
 .EXAMPLE
@@ -101,6 +101,8 @@ class CellState {
     [string]$Align = "Left"
     [string]$VAlign = "Center"
     [string]$NumberFormat = "General"
+    [string]$BgColor = ""
+    [string]$FgColor = ""
 }
 
 class PowerCellEngine {
@@ -110,6 +112,7 @@ class PowerCellEngine {
     [string]$FilePath = ""
     [bool]$IsModified = $false
     [bool]$IsZebraTable = $false
+    [string]$TableTheme = "Green"
 
     PowerCellEngine() {
         $this.Cells = @{}
@@ -175,6 +178,8 @@ class PowerCellEngine {
         $cell.Align = $existing.Align
         $cell.VAlign = $existing.VAlign
         $cell.NumberFormat = $existing.NumberFormat
+        $cell.BgColor = $existing.BgColor
+        $cell.FgColor = $existing.FgColor
         $cell.RawInput = $inputStr
 
         if ($inputStr.StartsWith("=")) {
@@ -203,6 +208,8 @@ class PowerCellEngine {
             "Align" { $cell.Align = [string]$propValue }
             "VAlign" { $cell.VAlign = [string]$propValue }
             "NumberFormat" { $cell.NumberFormat = [string]$propValue }
+            "BgColor" { $cell.BgColor = [string]$propValue }
+            "FgColor" { $cell.FgColor = [string]$propValue }
         }
         $key = $this.GetCellKey($col, $row)
         $this.Cells[$key] = $cell
@@ -575,7 +582,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
     }
 }
 
-# Authentic Office Ribbon Layout with Dynamic Font Selector
+# Authentic Office Ribbon Layout
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -682,7 +689,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
                     </Grid>
                 </Border>
 
-                <!-- Group 2: Font (Dynamic System Fonts Dropdown) -->
+                <!-- Group 2: Font & Colors -->
                 <Border BorderBrush="#333333" BorderThickness="0,0,1,0" Padding="6,0,8,0" Margin="0,0,4,0">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -691,21 +698,79 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
                         </Grid.RowDefinitions>
                         <StackPanel Grid.Row="0" VerticalAlignment="Center">
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                <ComboBox Name="cmbFontFamily" Width="130" Margin="0,0,4,0" ToolTip="Select System Font"/>
+                                <ComboBox Name="cmbFontFamily" Width="120" Margin="0,0,4,0" ToolTip="Select System Font"/>
                                 <ComboBox Name="cmbFontSize" Width="45" ToolTip="Font Size"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <ToggleButton Name="btnBold" Content="B" Style="{StaticResource OfficeToggleBtn}" ToolTip="Bold"/>
                                 <ToggleButton Name="btnItalic" Content="I" Style="{StaticResource OfficeToggleBtn}" FontStyle="Italic" ToolTip="Italic"/>
-                                <Button Content="U" Style="{StaticResource OfficeToolBtn}" FontWeight="Bold"/>
-                                <Button Name="btnToggleZebra" Content="🎨 Table Style" Style="{StaticResource OfficeToolBtn}"/>
+                                <Button Name="btnFillColor" Content="🪣 Fill ▾" Style="{StaticResource OfficeToolBtn}">
+                                    <Button.ContextMenu>
+                                        <ContextMenu Background="#252525" Foreground="#FFFFFF" BorderBrush="#555555">
+                                            <MenuItem Name="fillYellow" Header="🟨 Yellow (#FFFF00)"/>
+                                            <MenuItem Name="fillGreen" Header="🟩 Light Green (#D4EDDA)"/>
+                                            <MenuItem Name="fillRed" Header="🟥 Light Red (#F8D7DA)"/>
+                                            <MenuItem Name="fillBlue" Header="🟦 Light Blue (#D0E1FD)"/>
+                                            <MenuItem Name="fillOrange" Header="🟧 Light Orange (#FFE5D0)"/>
+                                            <MenuItem Name="fillPurple" Header="🟪 Light Purple (#EAD0F6)"/>
+                                            <Separator Background="#444444"/>
+                                            <MenuItem Name="fillNoFill" Header="❌ No Fill / Reset"/>
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
+                                </Button>
                             </StackPanel>
                         </StackPanel>
-                        <TextBlock Grid.Row="1" Text="Font" Foreground="#A1A1A1" FontSize="11" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                        <TextBlock Grid.Row="1" Text="Font &amp; Colors" Foreground="#A1A1A1" FontSize="11" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                     </Grid>
                 </Border>
 
-                <!-- Group 3: Alignment -->
+                <!-- Group 3: Styles (Cell Styles & Table Formats) -->
+                <Border BorderBrush="#333333" BorderThickness="0,0,1,0" Padding="6,0,8,0" Margin="0,0,4,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <Button Name="btnCellStyles" Content="🎨 Cell Styles ▾" Style="{StaticResource OfficeToolBtn}">
+                                    <Button.ContextMenu>
+                                        <ContextMenu Background="#252525" Foreground="#FFFFFF" BorderBrush="#555555">
+                                            <MenuItem Header="Good, Bad and Neutral" IsEnabled="False" FontWeight="Bold" Foreground="#A1A1A1"/>
+                                            <MenuItem Name="styleGood" Header=" Good (Green)" Foreground="#28A745"/>
+                                            <MenuItem Name="styleBad" Header=" Bad (Red)" Foreground="#DC3545"/>
+                                            <MenuItem Name="styleNeutral" Header=" Neutral (Yellow)" Foreground="#FFC107"/>
+                                            <Separator Background="#444444"/>
+                                            <MenuItem Header="Themed Cell Styles" IsEnabled="False" FontWeight="Bold" Foreground="#A1A1A1"/>
+                                            <MenuItem Name="styleAccent1" Header=" Accent 1 (Blue)" Foreground="#0078D4"/>
+                                            <MenuItem Name="styleAccent2" Header=" Accent 2 (Orange)" Foreground="#D13438"/>
+                                            <MenuItem Name="styleAccent3" Header=" Accent 3 (Green)" Foreground="#107C41"/>
+                                            <MenuItem Name="styleAccent4" Header=" Accent 4 (Purple)" Foreground="#881798"/>
+                                            <Separator Background="#444444"/>
+                                            <MenuItem Name="styleNormal" Header=" Normal / Reset"/>
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
+                                </Button>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Name="btnFormatTable" Content="📊 Format as Table ▾" Style="{StaticResource OfficeToolBtn}">
+                                    <Button.ContextMenu>
+                                        <ContextMenu Background="#252525" Foreground="#FFFFFF" BorderBrush="#555555">
+                                            <MenuItem Name="tblThemeGreen" Header="🟩 Green Office Theme"/>
+                                            <MenuItem Name="tblThemeBlue" Header="🟦 Ocean Blue Theme"/>
+                                            <MenuItem Name="tblThemeOrange" Header="🟧 Dark Amber Theme"/>
+                                            <MenuItem Name="tblThemePurple" Header="🟪 Royal Purple Theme"/>
+                                            <MenuItem Name="tblThemeSteel" Header="⬛ Dark Steel Theme"/>
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                        <TextBlock Grid.Row="1" Text="Styles" Foreground="#A1A1A1" FontSize="11" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </Grid>
+                </Border>
+
+                <!-- Group 4: Alignment -->
                 <Border BorderBrush="#333333" BorderThickness="0,0,1,0" Padding="6,0,8,0" Margin="0,0,4,0">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -728,7 +793,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
                     </Grid>
                 </Border>
 
-                <!-- Group 4: Number & Multi-Currencies -->
+                <!-- Group 5: Number & Multi-Currencies -->
                 <Border BorderBrush="#333333" BorderThickness="0,0,1,0" Padding="6,0,8,0" Margin="0,0,4,0">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -756,7 +821,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
                     </Grid>
                 </Border>
 
-                <!-- Group 5: Cells -->
+                <!-- Group 6: Cells -->
                 <Border BorderBrush="#333333" BorderThickness="0,0,1,0" Padding="6,0,8,0" Margin="0,0,4,0">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -771,7 +836,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
                     </Grid>
                 </Border>
 
-                <!-- Group 6: Editing & Authentic Sort/Filter -->
+                <!-- Group 7: Editing & Sort/Filter -->
                 <Border BorderBrush="#333333" BorderThickness="0,0,1,0" Padding="6,0,8,0" Margin="0,0,4,0">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -834,7 +899,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
                   VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling"
                   FontSize="12">
             <DataGrid.Resources>
-                <Style TargetType="DataGridColumnHeader">
+                <Style TargetType="DataGridColumnHeader" x:Key="HeaderStyle">
                     <Setter Property="Background" Value="#252525"/>
                     <Setter Property="Foreground" Value="#E1E1E1"/>
                     <Setter Property="FontWeight" Value="SemiBold"/>
@@ -844,6 +909,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
                     <Setter Property="Padding" Value="4"/>
                     <Setter Property="Cursor" Value="Hand"/>
                 </Style>
+                <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource HeaderStyle}"/>
                 <Style TargetType="DataGridRowHeader">
                     <Setter Property="Background" Value="#252525"/>
                     <Setter Property="Foreground" Value="#E1E1E1"/>
@@ -899,6 +965,32 @@ $btnItalic          = $window.FindName("btnItalic")
 $cmbFontFamily      = $window.FindName("cmbFontFamily")
 $cmbFontSize        = $window.FindName("cmbFontSize")
 
+$btnFillColor       = $window.FindName("btnFillColor")
+$fillYellow         = $window.FindName("fillYellow")
+$fillGreen          = $window.FindName("fillGreen")
+$fillRed            = $window.FindName("fillRed")
+$fillBlue           = $window.FindName("fillBlue")
+$fillOrange         = $window.FindName("fillOrange")
+$fillPurple         = $window.FindName("fillPurple")
+$fillNoFill         = $window.FindName("fillNoFill")
+
+$btnCellStyles      = $window.FindName("btnCellStyles")
+$styleGood          = $window.FindName("styleGood")
+$styleBad           = $window.FindName("styleBad")
+$styleNeutral       = $window.FindName("styleNeutral")
+$styleAccent1       = $window.FindName("styleAccent1")
+$styleAccent2       = $window.FindName("styleAccent2")
+$styleAccent3       = $window.FindName("styleAccent3")
+$styleAccent4       = $window.FindName("styleAccent4")
+$styleNormal        = $window.FindName("styleNormal")
+
+$btnFormatTable     = $window.FindName("btnFormatTable")
+$tblThemeGreen      = $window.FindName("tblThemeGreen")
+$tblThemeBlue       = $window.FindName("tblThemeBlue")
+$tblThemeOrange     = $window.FindName("tblThemeOrange")
+$tblThemePurple     = $window.FindName("tblThemePurple")
+$tblThemeSteel      = $window.FindName("tblThemeSteel")
+
 $btnAlignTop        = $window.FindName("btnAlignTop")
 $btnAlignMid        = $window.FindName("btnAlignMid")
 $btnAlignBot        = $window.FindName("btnAlignBot")
@@ -921,7 +1013,6 @@ $menuClearFilter    = $window.FindName("menuClearFilter")
 
 $txtFilter          = $window.FindName("txtFilter")
 $btnClearFilter     = $window.FindName("btnClearFilter")
-$btnToggleZebra     = $window.FindName("btnToggleZebra")
 
 $btnInsertRow       = $window.FindName("btnInsertRow")
 $btnDeleteRow       = $window.FindName("btnDeleteRow")
@@ -992,14 +1083,49 @@ function Refresh-GridUI {
     }
 }
 
-# Attach Row Header Numbers (1..N) & Apply Zebra Styling
+# Dynamic Table Theme Colors
+function Apply-TableTheme([string]$themeName) {
+    $engine.TableTheme = $themeName
+    $brushConv = New-Object System.Windows.Media.BrushConverter
+    
+    $oddBg = switch ($themeName) {
+        "Blue"   { "#1C2D42" }
+        "Orange" { "#3A2619" }
+        "Purple" { "#2D1D38" }
+        "Steel"  { "#2B2B2C" }
+        default  { "#202020" } # Green
+    }
+
+    foreach ($row in $gridSpreadsheet.Items) {
+        $rowIndex = $gridSpreadsheet.Items.IndexOf($row)
+        $dgRow = $gridSpreadsheet.ItemContainerGenerator.ContainerFromIndex($rowIndex) -as [System.Windows.Controls.DataGridRow]
+        if ($null -ne $dgRow) {
+            if ($rowIndex % 2 -eq 1) {
+                $dgRow.Background = $brushConv.ConvertFromString($oddBg)
+            } else {
+                $dgRow.Background = $brushConv.ConvertFromString("#181818")
+            }
+        }
+    }
+    Refresh-GridUI
+}
+
+# Attach Row Header Numbers (1..N) & Apply Table Colors
 $gridSpreadsheet.add_LoadingRow({
     param($sender, $e)
     $e.Row.Header = ($e.Row.GetIndex() + 1).ToString()
-    if ($engine.IsZebraTable -and ($e.Row.GetIndex() % 2 -eq 1)) {
-        $e.Row.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#202020")
+    $brushConv = New-Object System.Windows.Media.BrushConverter
+    $oddBg = switch ($engine.TableTheme) {
+        "Blue"   { "#1C2D42" }
+        "Orange" { "#3A2619" }
+        "Purple" { "#2D1D38" }
+        "Steel"  { "#2B2B2C" }
+        default  { "#202020" } # Green
+    }
+    if ($e.Row.GetIndex() % 2 -eq 1) {
+        $e.Row.Background = $brushConv.ConvertFromString($oddBg)
     } else {
-        $e.Row.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#181818")
+        $e.Row.Background = $brushConv.ConvertFromString("#181818")
     }
 })
 
@@ -1094,7 +1220,7 @@ $gridSpreadsheet.add_SelectedCellsChanged({
     }
 })
 
-# Apply formatting & text alignment to all selected cells
+# Apply formatting & cell background colors to selected cells
 function Apply-FormatToSelectedCells([string]$propName, $propValue) {
     if ($gridSpreadsheet.SelectedCells.Count -gt 0) {
         foreach ($cellInfo in $gridSpreadsheet.SelectedCells) {
@@ -1104,7 +1230,7 @@ function Apply-FormatToSelectedCells([string]$propName, $propValue) {
                 if ($r -gt 0 -and $c -gt 0) {
                     $engine.SetCellFormat($c, $r, $propName, $propValue)
 
-                    # Update Column Font Family / Font Size directly
+                    # Update Column Font Style
                     $col = $gridSpreadsheet.Columns[$c - 1] -as [System.Windows.Controls.DataGridTextColumn]
                     if ($null -ne $col) {
                         switch ($propName) {
@@ -1137,7 +1263,53 @@ function Apply-FormatToSelectedCells([string]$propName, $propValue) {
     }
 }
 
-# Formula Bar Commit
+# Apply Cell Preset Style (Good, Bad, Neutral, Accent) with Direct Container Rendering
+function Apply-CellStylePreset([string]$bgHex, [string]$fgHex) {
+    if ($gridSpreadsheet.SelectedCells.Count -gt 0) {
+        $brushConv = New-Object System.Windows.Media.BrushConverter
+        
+        foreach ($cellInfo in $gridSpreadsheet.SelectedCells) {
+            if ($null -ne $cellInfo -and $null -ne $cellInfo.Item -and $null -ne $cellInfo.Column) {
+                $r = $gridSpreadsheet.Items.IndexOf($cellInfo.Item) + 1
+                $c = $gridSpreadsheet.Columns.IndexOf($cellInfo.Column) + 1
+                if ($r -gt 0 -and $c -gt 0) {
+                    $engine.SetCellFormat($c, $r, "BgColor", $bgHex)
+                    $engine.SetCellFormat($c, $r, "FgColor", $fgHex)
+                    
+                    # Direct WPF DataGridCell Container Access
+                    $dgRow = $gridSpreadsheet.ItemContainerGenerator.ContainerFromIndex($r - 1) -as [System.Windows.Controls.DataGridRow]
+                    if ($null -ne $dgRow) {
+                        $cellContent = $cellInfo.Column.GetCellContent($dgRow)
+                        if ($null -ne $cellContent) {
+                            $cellContainer = $cellContent.Parent -as [System.Windows.Controls.DataGridCell]
+                            if ($null -ne $cellContainer) {
+                                if (-not [string]::IsNullOrEmpty($bgHex)) {
+                                    $cellContainer.Background = $brushConv.ConvertFromString($bgHex)
+                                } else {
+                                    $cellContainer.ClearValue([System.Windows.Controls.DataGridCell]::BackgroundProperty)
+                                }
+                                if (-not [string]::IsNullOrEmpty($fgHex)) {
+                                    $cellContainer.Foreground = $brushConv.ConvertFromString($fgHex)
+                                    if ($cellContent -is [System.Windows.Controls.TextBlock]) {
+                                        $cellContent.Foreground = $brushConv.ConvertFromString($fgHex)
+                                    }
+                                } else {
+                                    $cellContainer.ClearValue([System.Windows.Controls.DataGridCell]::ForegroundProperty)
+                                    if ($cellContent -is [System.Windows.Controls.TextBlock]) {
+                                        $cellContent.ClearValue([System.Windows.Controls.TextBlock]::ForegroundProperty)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Refresh-GridUI
+    }
+}
+
+# Commit Formula Input
 $txtFormula.add_KeyDown({
     param($sender, $e)
     if ($e.Key -eq [System.Windows.Input.Key]::Enter) {
@@ -1178,6 +1350,35 @@ $cmbFontSize.add_SelectionChanged({
         Apply-FormatToSelectedCells "FontSize" [double]$cmbFontSize.SelectedItem
     }
 })
+
+# Fill Color Palette Menu Handlers
+$btnFillColor.add_Click({ $btnFillColor.ContextMenu.IsOpen = $true })
+$fillYellow.add_Click({ Apply-CellStylePreset "#FFFF00" "#000000" })
+$fillGreen.add_Click({ Apply-CellStylePreset "#D4EDDA" "#155724" })
+$fillRed.add_Click({ Apply-CellStylePreset "#F8D7DA" "#721C24" })
+$fillBlue.add_Click({ Apply-CellStylePreset "#D0E1FD" "#0C5460" })
+$fillOrange.add_Click({ Apply-CellStylePreset "#FFE5D0" "#856404" })
+$fillPurple.add_Click({ Apply-CellStylePreset "#EAD0F6" "#383D41" })
+$fillNoFill.add_Click({ Apply-CellStylePreset "" "" })
+
+# Cell Styles Palette Menu Handlers
+$btnCellStyles.add_Click({ $btnCellStyles.ContextMenu.IsOpen = $true })
+$styleGood.add_Click({ Apply-CellStylePreset "#D4EDDA" "#155724" })      # Good (Soft Green)
+$styleBad.add_Click({ Apply-CellStylePreset "#F8D7DA" "#721C24" })       # Bad (Soft Red)
+$styleNeutral.add_Click({ Apply-CellStylePreset "#FFF3CD" "#856404" })   # Neutral (Soft Yellow)
+$styleAccent1.add_Click({ Apply-CellStylePreset "#0078D4" "#FFFFFF" })   # Accent 1 (Blue)
+$styleAccent2.add_Click({ Apply-CellStylePreset "#D13438" "#FFFFFF" })   # Accent 2 (Orange)
+$styleAccent3.add_Click({ Apply-CellStylePreset "#107C41" "#FFFFFF" })   # Accent 3 (Green)
+$styleAccent4.add_Click({ Apply-CellStylePreset "#881798" "#FFFFFF" })   # Accent 4 (Purple)
+$styleNormal.add_Click({ Apply-CellStylePreset "" "" })                 # Reset Normal
+
+# Format as Table Menu Handlers
+$btnFormatTable.add_Click({ $btnFormatTable.ContextMenu.IsOpen = $true })
+$tblThemeGreen.add_Click({ Apply-TableTheme "Green"; $txtStatus.Text = "Applied Green Office Table Theme." })
+$tblThemeBlue.add_Click({ Apply-TableTheme "Blue"; $txtStatus.Text = "Applied Ocean Blue Table Theme." })
+$tblThemeOrange.add_Click({ Apply-TableTheme "Orange"; $txtStatus.Text = "Applied Dark Amber Table Theme." })
+$tblThemePurple.add_Click({ Apply-TableTheme "Purple"; $txtStatus.Text = "Applied Royal Purple Table Theme." })
+$tblThemeSteel.add_Click({ Apply-TableTheme "Steel"; $txtStatus.Text = "Applied Dark Steel Table Theme." })
 
 # Text Alignment Positioning Handlers
 $btnAlignTop.add_Click({ Apply-FormatToSelectedCells "VAlign" "Top" })
@@ -1268,12 +1469,6 @@ $btnClearFilter.add_Click({
     $txtFilter.Text = ""
     Refresh-GridUI
     $txtStatus.Text = "Filter cleared."
-})
-
-$btnToggleZebra.add_Click({
-    $engine.IsZebraTable = -not $engine.IsZebraTable
-    Refresh-GridUI
-    $txtStatus.Text = if ($engine.IsZebraTable) { "Table Zebra Style Applied." } else { "Standard Table Style." }
 })
 
 # File Actions
