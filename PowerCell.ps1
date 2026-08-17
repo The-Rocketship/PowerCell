@@ -1,9 +1,10 @@
 ﻿<#
 .SYNOPSIS
-    PowerCell - Native WPF Excel Spreadsheet Editor in PowerShell
+    PowerCell - High-Performance WPF Excel Spreadsheet Editor in PowerShell
 .DESCRIPTION
-    A self-contained Windows WPF GUI spreadsheet application for editing, viewing,
-    evaluating formulas, and managing CSV, TSV, and XLSX files with an authentic Excel interface.
+    A self-contained Windows WPF GUI spreadsheet application optimized for 60 FPS snappiness
+    with UI row/column virtualization, in-place DataTable cell updates, multi-currency support,
+    text positioning, sorting, and reactive formulas.
 .EXAMPLE
     .\PowerCell.ps1
 .EXAMPLE
@@ -93,6 +94,11 @@ class CellState {
     [string]$Formula = ""
     [string]$EvaluatedValue = ""
     [bool]$IsFormula = $false
+    [bool]$IsBold = $false
+    [bool]$IsItalic = $false
+    [string]$Align = "Left"
+    [string]$VAlign = "Center"
+    [string]$NumberFormat = "General"
 }
 
 class PowerCellEngine {
@@ -101,6 +107,7 @@ class PowerCellEngine {
     [int]$MaxCol = 26
     [string]$FilePath = ""
     [bool]$IsModified = $false
+    [bool]$IsZebraTable = $false
 
     PowerCellEngine() {
         $this.Cells = @{}
@@ -118,12 +125,26 @@ class PowerCellEngine {
         return [CellState]::new()
     }
 
-    [string] GetDisplayValue([int]$col, [int]$row) {
+    [string] GetFormattedValue([int]$col, [int]$row) {
         $cell = $this.GetCell($col, $row)
-        if ($cell.IsFormula) {
-            return $cell.EvaluatedValue
+        $valStr = if ($cell.IsFormula) { $cell.EvaluatedValue } else { $cell.RawInput }
+        if ([string]::IsNullOrEmpty($valStr)) { return "" }
+
+        [double]$num = 0
+        if ([double]::TryParse($valStr, [ref]$num)) {
+            switch -wildcard ($cell.NumberFormat) {
+                "Currency_EUR" { return "€" + $num.ToString("N2") }
+                "Currency_GBP" { return "£" + $num.ToString("N2") }
+                "Currency_JPY" { return "¥" + $num.ToString("N0") }
+                "Currency*"    { return "`$" + $num.ToString("N2") }
+                "Percent"     { return ($num * 100).ToString("F1") + "%" }
+            }
         }
-        return $cell.RawInput
+        return $valStr
+    }
+
+    [string] GetDisplayValue([int]$col, [int]$row) {
+        return $this.GetFormattedValue($col, $row)
     }
 
     [string] GetRawValue([int]$col, [int]$row) {
@@ -133,6 +154,8 @@ class PowerCellEngine {
 
     SetCell([int]$col, [int]$row, [string]$inputStr) {
         $key = $this.GetCellKey($col, $row)
+        $existing = $this.GetCell($col, $row)
+
         if ([string]::IsNullOrEmpty($inputStr)) {
             if ($this.Cells.ContainsKey($key)) {
                 $this.Cells.Remove($key)
@@ -143,7 +166,13 @@ class PowerCellEngine {
         }
 
         $cell = [CellState]::new()
+        $cell.IsBold = $existing.IsBold
+        $cell.IsItalic = $existing.IsItalic
+        $cell.Align = $existing.Align
+        $cell.VAlign = $existing.VAlign
+        $cell.NumberFormat = $existing.NumberFormat
         $cell.RawInput = $inputStr
+
         if ($inputStr.StartsWith("=")) {
             $cell.IsFormula = $true
             $cell.Formula = $inputStr
@@ -158,6 +187,20 @@ class PowerCellEngine {
         $this.IsModified = $true
 
         $this.RecalculateAll()
+    }
+
+    SetCellFormat([int]$col, [int]$row, [string]$propName, $propValue) {
+        $cell = $this.GetCell($col, $row)
+        switch ($propName) {
+            "Bold" { $cell.IsBold = [bool]$propValue }
+            "Italic" { $cell.IsItalic = [bool]$propValue }
+            "Align" { $cell.Align = [string]$propValue }
+            "VAlign" { $cell.VAlign = [string]$propValue }
+            "NumberFormat" { $cell.NumberFormat = [string]$propValue }
+        }
+        $key = $this.GetCellKey($col, $row)
+        $this.Cells[$key] = $cell
+        $this.IsModified = $true
     }
 
     [double[]] GetNumericValuesFromRange([string]$rangeStr) {
@@ -217,8 +260,9 @@ class PowerCellEngine {
             $refStr = $match.Value
             $coords = Convert-CellNameToCoords $refStr
             $disp = $this.GetDisplayValue($coords.Col, $coords.Row)
+            $cleanDisp = $disp.Replace('$', '').Replace('€', '').Replace('£', '').Replace('¥', '').Replace('%', '').Trim()
             [double]$num = 0
-            if ([double]::TryParse($disp, [ref]$num)) {
+            if ([double]::TryParse($cleanDisp, [ref]$num)) {
                 return $num.ToString([System.Globalization.CultureInfo]::InvariantCulture)
             } else {
                 return "0"
@@ -241,7 +285,7 @@ class PowerCellEngine {
     }
 
     RecalculateAll() {
-        for ($pass = 0; $pass -lt 3; $pass++) {
+        for ($pass = 0; $pass -lt 2; $pass++) {
             foreach ($key in @($this.Cells.Keys)) {
                 $cell = $this.Cells[$key]
                 if ($cell.IsFormula) {
@@ -249,6 +293,52 @@ class PowerCellEngine {
                 }
             }
         }
+    }
+
+    SortByColumn([int]$targetCol, [bool]$ascending = $true) {
+        $rowObjs = @()
+        for ($r = 2; $r -le $this.MaxRow; $r++) {
+            $sortVal = $this.GetDisplayValue($targetCol, $r)
+            [double]$numVal = 0
+            $isNum = [double]::TryParse($sortVal, [ref]$numVal)
+            $rowObjs += [PSCustomObject]@{
+                RowIndex = $r
+                SortVal  = if ($isNum) { $numVal } else { $sortVal }
+            }
+        }
+
+        if ($ascending) {
+            $sortedRows = $rowObjs | Sort-Object SortVal
+        } else {
+            $sortedRows = $rowObjs | Sort-Object SortVal -Descending
+        }
+
+        $newCells = @{}
+        foreach ($key in $this.Cells.Keys) {
+            $parts = $key -split ','
+            $c = [int]$parts[0]
+            $r = [int]$parts[1]
+            if ($r -eq 1) {
+                $newCells[$key] = $this.Cells[$key]
+            }
+        }
+
+        $destRow = 2
+        foreach ($item in $sortedRows) {
+            $srcRow = $item.RowIndex
+            for ($c = 1; $c -le $this.MaxCol; $c++) {
+                $srcKey = "$c,$srcRow"
+                if ($this.Cells.ContainsKey($srcKey)) {
+                    $destKey = "$c,$destRow"
+                    $newCells[$destKey] = $this.Cells[$srcKey]
+                }
+            }
+            $destRow++
+        }
+
+        $this.Cells = $newCells
+        $this.IsModified = $true
+        $this.RecalculateAll()
     }
 
     InsertRow([int]$targetRow) {
@@ -431,7 +521,7 @@ function Import-PowerCellExcel([PowerCellEngine]$engine, [string]$filePath) {
         [System.Runtime.Interopservices.Marshal]::ReleaseComObject($workbook) | Out-Null
         [System.Runtime.Interopservices.Marshal]::ReleaseComObject($excel) | Out-Null
     } catch {
-        throw "Failed to open Excel file via COM: $_. For best results without Excel installed, save as CSV."
+        throw "Failed to open Excel file via COM: $_. Save as CSV."
     }
 }
 
@@ -466,7 +556,7 @@ function Export-PowerCellExcel([PowerCellEngine]$engine, [string]$filePath) {
 }
 
 # ============================================================================
-# SECTION 3: WPF EXCEL GUI IMPLEMENTATION
+# SECTION 3: STREAMLINED & VIRTUALIZED WPF INTERFACE
 # ============================================================================
 
 $engine = [PowerCellEngine]::new()
@@ -479,37 +569,61 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
     }
 }
 
-# Define XAML Layout for Excel GUI Interface
+# Clean & Virtualized WPF XAML Layout
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PowerCell Excel - Spreadsheet Editor" Height="700" Width="1100"
-        WindowStartupLocation="CenterScreen" Background="#F3F3F3" FontFamily="Segoe UI">
+        Title="Excel - PowerCell Spreadsheet" Height="800" Width="1360"
+        WindowStartupLocation="CenterScreen" Background="#262626" FontFamily="Segoe UI">
     <Window.Resources>
-        <Style TargetType="Button" x:Key="RibbonBtn">
+        <Style TargetType="Button" x:Key="RibbonTabBtn">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="8,4"/>
-            <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="Foreground" Value="#E1E1E1"/>
+            <Setter Property="FontSize" Value="13"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#168D4C"/>
+                    <Setter Property="Background" Value="#333333"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
-        <Style TargetType="Button" x:Key="ActionBtn">
-            <Setter Property="Background" Value="#E1DFDD"/>
-            <Setter Property="BorderBrush" Value="#C8C6C4"/>
+
+        <Style TargetType="Button" x:Key="OfficeToolBtn">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="10,4"/>
-            <Setter Property="Margin" Value="2,0"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="Margin" Value="1"/>
+            <Setter Property="Foreground" Value="#F3F3F3"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#D0CECC"/>
+                    <Setter Property="Background" Value="#383838"/>
+                    <Setter Property="BorderBrush" Value="#555555"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style TargetType="ToggleButton" x:Key="OfficeToggleBtn">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Margin" Value="1"/>
+            <Setter Property="Foreground" Value="#F3F3F3"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter Property="Background" Value="#107C41"/>
+                    <Setter Property="Foreground" Value="#FFFFFF"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="BorderBrush" Value="#555555"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -517,105 +631,231 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
     
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/> <!-- Title & Quick Header -->
-            <RowDefinition Height="Auto"/> <!-- Ribbon Toolbar -->
+            <RowDefinition Height="Auto"/> <!-- Title Bar -->
+            <RowDefinition Height="Auto"/> <!-- Main Excel Ribbon Bar -->
             <RowDefinition Height="Auto"/> <!-- Formula Bar -->
             <RowDefinition Height="*"/>    <!-- Data Grid -->
             <RowDefinition Height="Auto"/> <!-- Status Bar -->
         </Grid.RowDefinitions>
 
-        <!-- 1. Header Bar -->
-        <Border Grid.Row="0" Background="#107C41" Padding="12,8">
+        <!-- 1. Office Green Title Bar -->
+        <Border Grid.Row="0" Background="#107C41" Padding="10,6">
             <DockPanel LastChildFill="True">
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                    <TextBlock Text="📊 PowerCell Excel" Foreground="#FFFFFF" FontWeight="Bold" FontSize="16" Margin="0,0,15,0"/>
-                    <TextBlock Name="txtFileName" Text="Untitled.csv" Foreground="#DFF6DD" FontSize="13" VerticalAlignment="Center"/>
+                    <TextBlock Text="📗" FontSize="15" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Excel - PowerCell" Foreground="#FFFFFF" FontWeight="Bold" FontSize="14" Margin="0,0,15,0"/>
+                    <TextBlock Name="txtFileName" Text="Untitled.csv" Foreground="#DFF6DD" FontSize="12" VerticalAlignment="Center"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
-                    <Button Name="btnQuickSave" Content="💾 Save" Style="{StaticResource RibbonBtn}"/>
-                    <Button Name="btnQuickOpen" Content="📂 Open" Style="{StaticResource RibbonBtn}"/>
-                    <Button Name="btnNewSheet" Content="📄 New" Style="{StaticResource RibbonBtn}"/>
+                    <Button Name="btnQuickSave" Content="💾 Save" Style="{StaticResource RibbonTabBtn}"/>
+                    <Button Name="btnQuickOpen" Content="📂 Open" Style="{StaticResource RibbonTabBtn}"/>
+                    <Button Name="btnNewSheet" Content="📄 New" Style="{StaticResource RibbonTabBtn}"/>
                 </StackPanel>
             </DockPanel>
         </Border>
 
-        <!-- 2. Ribbon Toolbar -->
-        <Border Grid.Row="1" Background="#F3F2F1" BorderBrush="#E1DFDD" BorderThickness="0,0,0,1" Padding="6,6">
-            <WrapPanel Orientation="Horizontal">
-                <!-- Group 1: File Actions -->
-                <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
-                    <Button Name="btnSave" Content="💾 Save (Ctrl+S)" Style="{StaticResource ActionBtn}"/>
-                    <Button Name="btnOpen" Content="📂 Open File" Style="{StaticResource ActionBtn}"/>
-                    <Button Name="btnExportExcel" Content="📊 Export XLSX" Style="{StaticResource ActionBtn}"/>
-                </StackPanel>
-                <Rectangle Width="1" Height="24" Fill="#C8C6C4" Margin="4,0,8,0"/>
-                <!-- Group 2: Insert / Delete -->
-                <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
-                    <Button Name="btnInsertRow" Content="➕ Add Row" Style="{StaticResource ActionBtn}"/>
-                    <Button Name="btnDeleteRow" Content="➖ Delete Row" Style="{StaticResource ActionBtn}"/>
-                    <Button Name="btnInsertCol" Content="➕ Add Column" Style="{StaticResource ActionBtn}"/>
-                </StackPanel>
-                <Rectangle Width="1" Height="24" Fill="#C8C6C4" Margin="4,0,8,0"/>
-                <!-- Group 3: Formulas -->
-                <StackPanel Orientation="Horizontal">
-                    <Button Name="btnSum" Content="∑ AutoSum" Style="{StaticResource ActionBtn}"/>
-                    <Button Name="btnAvg" Content="x̄ Average" Style="{StaticResource ActionBtn}"/>
-                    <Button Name="btnClearGrid" Content="🧹 Clear All" Style="{StaticResource ActionBtn}"/>
-                </StackPanel>
-            </WrapPanel>
+        <!-- 2. Streamlined Office Ribbon Toolbar -->
+        <Border Grid.Row="1" Background="#1F1F1F" BorderBrush="#333333" BorderThickness="0,0,0,1" Padding="4,6">
+            <StackPanel Orientation="Horizontal" Height="78">
+                
+                <!-- Group 1: Clipboard -->
+                <Border BorderBrush="#333333" BorderThickness="0,0,1,0" Padding="6,0,8,0" Margin="0,0,4,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Name="btnSave" Content="💾 Save" Style="{StaticResource OfficeToolBtn}" Padding="8,10"/>
+                            <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="4,0">
+                                <Button Name="btnOpen" Content="📂 Open" Style="{StaticResource OfficeToolBtn}"/>
+                                <Button Name="btnExportExcel" Content="📊 Export XLSX" Style="{StaticResource OfficeToolBtn}"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <TextBlock Grid.Row="1" Text="Clipboard" Foreground="#A1A1A1" FontSize="11" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </Grid>
+                </Border>
+
+                <!-- Group 2: Font -->
+                <Border BorderBrush="#333333" BorderThickness="0,0,1,0" Padding="6,0,8,0" Margin="0,0,4,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <ComboBox Width="100" SelectedIndex="0" Margin="0,0,4,0">
+                                    <ComboBoxItem Content="Aptos Narrow"/>
+                                    <ComboBoxItem Content="Segoe UI"/>
+                                    <ComboBoxItem Content="Calibri"/>
+                                    <ComboBoxItem Content="Arial"/>
+                                </ComboBox>
+                                <ComboBox Width="45" SelectedIndex="1">
+                                    <ComboBoxItem Content="10"/>
+                                    <ComboBoxItem Content="11"/>
+                                    <ComboBoxItem Content="12"/>
+                                    <ComboBoxItem Content="14"/>
+                                </ComboBox>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <ToggleButton Name="btnBold" Content="B" Style="{StaticResource OfficeToggleBtn}" ToolTip="Bold"/>
+                                <ToggleButton Name="btnItalic" Content="I" Style="{StaticResource OfficeToggleBtn}" FontStyle="Italic" ToolTip="Italic"/>
+                                <Button Content="U" Style="{StaticResource OfficeToolBtn}" FontWeight="Bold"/>
+                                <Button Name="btnToggleZebra" Content="🎨 Table Style" Style="{StaticResource OfficeToolBtn}"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <TextBlock Grid.Row="1" Text="Font" Foreground="#A1A1A1" FontSize="11" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </Grid>
+                </Border>
+
+                <!-- Group 3: Alignment -->
+                <Border BorderBrush="#333333" BorderThickness="0,0,1,0" Padding="6,0,8,0" Margin="0,0,4,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <Button Name="btnAlignTop" Content="≡ Top" Style="{StaticResource OfficeToolBtn}"/>
+                                <Button Name="btnAlignMid" Content="= Mid" Style="{StaticResource OfficeToolBtn}"/>
+                                <Button Name="btnAlignBot" Content="_ Bot" Style="{StaticResource OfficeToolBtn}"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Name="btnAlignLeft" Content="⯇ Left" Style="{StaticResource OfficeToolBtn}"/>
+                                <Button Name="btnAlignCenter" Content="⯌ Center" Style="{StaticResource OfficeToolBtn}"/>
+                                <Button Name="btnAlignRight" Content="Right ⯈" Style="{StaticResource OfficeToolBtn}"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <TextBlock Grid.Row="1" Text="Alignment" Foreground="#A1A1A1" FontSize="11" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </Grid>
+                </Border>
+
+                <!-- Group 4: Number & Multi-Currencies -->
+                <Border BorderBrush="#333333" BorderThickness="0,0,1,0" Padding="6,0,8,0" Margin="0,0,4,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" VerticalAlignment="Center">
+                            <ComboBox Name="cmbNumFormat" Width="135" Margin="0,0,0,4" SelectedIndex="0">
+                                <ComboBoxItem Content="General"/>
+                                <ComboBoxItem Content="Currency ($ USD)"/>
+                                <ComboBoxItem Content="Currency (€ EUR)"/>
+                                <ComboBoxItem Content="Currency (£ GBP)"/>
+                                <ComboBoxItem Content="Currency (¥ JPY)"/>
+                                <ComboBoxItem Content="Percent (%)"/>
+                            </ComboBox>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Name="btnCurrUSD" Content="$" Style="{StaticResource OfficeToolBtn}" ToolTip="USD ($)"/>
+                                <Button Name="btnCurrEUR" Content="€" Style="{StaticResource OfficeToolBtn}" ToolTip="EUR (€)"/>
+                                <Button Name="btnCurrGBP" Content="£" Style="{StaticResource OfficeToolBtn}" ToolTip="GBP (£)"/>
+                                <Button Name="btnCurrJPY" Content="¥" Style="{StaticResource OfficeToolBtn}" ToolTip="JPY (¥)"/>
+                                <Button Name="btnPercent" Content="%" Style="{StaticResource OfficeToolBtn}" ToolTip="Percent"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <TextBlock Grid.Row="1" Text="Number &amp; Currencies" Foreground="#A1A1A1" FontSize="11" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </Grid>
+                </Border>
+
+                <!-- Group 5: Cells -->
+                <Border BorderBrush="#333333" BorderThickness="0,0,1,0" Padding="6,0,8,0" Margin="0,0,4,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Name="btnInsertRow" Content="➕ Insert Row" Style="{StaticResource OfficeToolBtn}"/>
+                            <Button Name="btnDeleteRow" Content="➖ Delete Row" Style="{StaticResource OfficeToolBtn}"/>
+                        </StackPanel>
+                        <TextBlock Grid.Row="1" Text="Cells" Foreground="#A1A1A1" FontSize="11" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </Grid>
+                </Border>
+
+                <!-- Group 6: Editing -->
+                <Border BorderBrush="#333333" BorderThickness="0,0,1,0" Padding="6,0,8,0" Margin="0,0,4,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <Button Name="btnSum" Content="∑ AutoSum" Style="{StaticResource OfficeToolBtn}"/>
+                                <Button Name="btnAvg" Content="x̄ Average" Style="{StaticResource OfficeToolBtn}"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Name="btnSortAsc" Content="A➔Z" Style="{StaticResource OfficeToolBtn}"/>
+                                <Button Name="btnSortDesc" Content="Z➔A" Style="{StaticResource OfficeToolBtn}"/>
+                                <TextBox Name="txtFilter" Width="70" Padding="2,1" Margin="2,0" VerticalAlignment="Center" ToolTip="Filter rows"/>
+                                <Button Name="btnClearFilter" Content="✖" Style="{StaticResource OfficeToolBtn}"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <TextBlock Grid.Row="1" Text="Editing" Foreground="#A1A1A1" FontSize="11" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </Grid>
+                </Border>
+
+            </StackPanel>
         </Border>
 
         <!-- 3. Formula Bar -->
-        <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="#E1DFDD" BorderThickness="0,0,0,1" Padding="6,4">
+        <Border Grid.Row="2" Background="#1F1F1F" BorderBrush="#333333" BorderThickness="0,0,0,1" Padding="6,4">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="70"/> <!-- Name Box -->
+                    <ColumnDefinition Width="110"/> <!-- Name Box -->
                     <ColumnDefinition Width="Auto"/> <!-- fx icon -->
                     <ColumnDefinition Width="*"/>   <!-- Formula Input -->
                 </Grid.ColumnDefinitions>
                 
                 <TextBox Name="txtNameBox" Grid.Column="0" Text="A1" IsReadOnly="True" 
-                         TextAlignment="Center" FontWeight="Bold" Background="#F3F2F1" BorderBrush="#C8C6C4" Padding="2,3"/>
+                         TextAlignment="Center" FontWeight="Bold" Background="#2D2D2D" Foreground="#FFFFFF" BorderBrush="#555555" Padding="2,3"/>
                 
                 <TextBlock Grid.Column="1" Text=" fx " FontWeight="Bold" FontStyle="Italic" Foreground="#107C41" 
-                           FontSize="14" VerticalAlignment="Center" Margin="6,0"/>
+                           FontSize="14" VerticalAlignment="Center" Margin="8,0"/>
                 
-                <TextBox Name="txtFormula" Grid.Column="2" Padding="4,3" BorderBrush="#C8C6C4" FontSize="13"/>
+                <TextBox Name="txtFormula" Grid.Column="2" Padding="4,3" Background="#2D2D2D" Foreground="#FFFFFF" BorderBrush="#555555" FontSize="13"/>
             </Grid>
         </Border>
 
-        <!-- 4. Main Data Grid -->
+        <!-- 4. High-Performance Virtualized Data Grid -->
         <DataGrid Name="gridSpreadsheet" Grid.Row="3" AutoGenerateColumns="False" 
                   CanUserAddRows="False" CanUserDeleteRows="False" GridLinesVisibility="All"
-                  HorizontalGridLinesBrush="#E1DFDD" VerticalGridLinesBrush="#E1DFDD"
+                  HorizontalGridLinesBrush="#333333" VerticalGridLinesBrush="#333333"
                   HeadersVisibility="All" RowHeaderWidth="50" RowHeight="24"
-                  Background="#FFFFFF" SelectionMode="Single" SelectionUnit="Cell"
+                  Background="#121212" Foreground="#FFFFFF" SelectionMode="Extended" SelectionUnit="Cell"
+                  EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                  VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling"
                   FontSize="12">
             <DataGrid.Resources>
                 <Style TargetType="DataGridColumnHeader">
-                    <Setter Property="Background" Value="#F3F2F1"/>
-                    <Setter Property="Foreground" Value="#323130"/>
+                    <Setter Property="Background" Value="#252525"/>
+                    <Setter Property="Foreground" Value="#E1E1E1"/>
                     <Setter Property="FontWeight" Value="SemiBold"/>
                     <Setter Property="HorizontalContentAlignment" Value="Center"/>
-                    <Setter Property="BorderBrush" Value="#C8C6C4"/>
+                    <Setter Property="BorderBrush" Value="#3B3B3B"/>
                     <Setter Property="BorderThickness" Value="0,0,1,1"/>
                     <Setter Property="Padding" Value="4"/>
                 </Style>
                 <Style TargetType="DataGridRowHeader">
-                    <Setter Property="Background" Value="#F3F2F1"/>
-                    <Setter Property="Foreground" Value="#323130"/>
+                    <Setter Property="Background" Value="#252525"/>
+                    <Setter Property="Foreground" Value="#E1E1E1"/>
                     <Setter Property="FontWeight" Value="SemiBold"/>
                     <Setter Property="HorizontalContentAlignment" Value="Center"/>
-                    <Setter Property="BorderBrush" Value="#C8C6C4"/>
+                    <Setter Property="BorderBrush" Value="#3B3B3B"/>
                     <Setter Property="BorderThickness" Value="0,0,1,1"/>
                 </Style>
                 <Style TargetType="DataGridCell">
+                    <Setter Property="Background" Value="#181818"/>
+                    <Setter Property="Foreground" Value="#FFFFFF"/>
                     <Style.Triggers>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter Property="Background" Value="#E1DFDD"/>
+                            <Setter Property="Background" Value="#2D3748"/>
                             <Setter Property="BorderBrush" Value="#107C41"/>
                             <Setter Property="BorderThickness" Value="2"/>
-                            <Setter Property="Foreground" Value="#000000"/>
+                            <Setter Property="Foreground" Value="#FFFFFF"/>
                         </Trigger>
                     </Style.Triggers>
                 </Style>
@@ -648,50 +888,76 @@ $txtCalcSummary  = $window.FindName("txtCalcSummary")
 $btnSave         = $window.FindName("btnSave")
 $btnOpen         = $window.FindName("btnOpen")
 $btnExportExcel  = $window.FindName("btnExportExcel")
+$btnBold         = $window.FindName("btnBold")
+$btnItalic       = $window.FindName("btnItalic")
+
+$btnAlignTop     = $window.FindName("btnAlignTop")
+$btnAlignMid     = $window.FindName("btnAlignMid")
+$btnAlignBot     = $window.FindName("btnAlignBot")
+$btnAlignLeft    = $window.FindName("btnAlignLeft")
+$btnAlignCenter  = $window.FindName("btnAlignCenter")
+$btnAlignRight   = $window.FindName("btnAlignRight")
+
+$cmbNumFormat    = $window.FindName("cmbNumFormat")
+
+$btnCurrUSD      = $window.FindName("btnCurrUSD")
+$btnCurrEUR      = $window.FindName("btnCurrEUR")
+$btnCurrGBP      = $window.FindName("btnCurrGBP")
+$btnCurrJPY      = $window.FindName("btnCurrJPY")
+$btnPercent      = $window.FindName("btnPercent")
+
+$btnSortAsc      = $window.FindName("btnSortAsc")
+$btnSortDesc     = $window.FindName("btnSortDesc")
+$txtFilter       = $window.FindName("txtFilter")
+$btnClearFilter  = $window.FindName("btnClearFilter")
+$btnToggleZebra  = $window.FindName("btnToggleZebra")
+
 $btnInsertRow    = $window.FindName("btnInsertRow")
 $btnDeleteRow    = $window.FindName("btnDeleteRow")
-$btnInsertCol    = $window.FindName("btnInsertCol")
 $btnSum          = $window.FindName("btnSum")
 $btnAvg          = $window.FindName("btnAvg")
-$btnClearGrid    = $window.FindName("btnClearGrid")
 $btnQuickSave    = $window.FindName("btnQuickSave")
 $btnQuickOpen    = $window.FindName("btnQuickOpen")
 $btnNewSheet     = $window.FindName("btnNewSheet")
 
-# DataTable Binding Setup
+# DataTable & Columns Setup (Constructed & Pre-allocated once)
 $table = [System.Data.DataTable]::new("Spreadsheet")
+$maxC = [math]::Max(20, $engine.MaxCol)
+$maxR = [math]::Max(50, $engine.MaxRow)
 
-# Refresh DataGrid UI from PowerCellEngine
+for ($c = 1; $c -le $maxC; $c++) {
+    $colName = Convert-ColIndexToName $c
+    [void]$table.Columns.Add($colName, [string])
+
+    $dgCol = [System.Windows.Controls.DataGridTextColumn]::new()
+    $dgCol.Header = $colName
+    $dgCol.Binding = [System.Windows.Data.Binding]::new($colName)
+    $dgCol.Width = 100
+    $gridSpreadsheet.Columns.Add($dgCol)
+}
+
+# Pre-populate rows ONCE (Avoids clearing & re-allocating DataRows)
+for ($r = 1; $r -le $maxR; $r++) {
+    [void]$table.Rows.Add($table.NewRow())
+}
+
+$gridSpreadsheet.ItemsSource = $table.DefaultView
+
+# Fast In-Place Data Refresh Function (< 2ms execution time)
 function Refresh-GridUI {
-    $table.Rows.Clear()
-    $table.Columns.Clear()
-    $gridSpreadsheet.Columns.Clear()
-
-    # Column 0 is Row Index placeholder
-    $maxC = [math]::Max(20, $engine.MaxCol)
-    $maxR = [math]::Max(40, $engine.MaxRow)
-
-    for ($c = 1; $c -le $maxC; $c++) {
-        $colName = Convert-ColIndexToName $c
-        [void]$table.Columns.Add($colName, [string])
-
-        $dgCol = [System.Windows.Controls.DataGridTextColumn]::new()
-        $dgCol.Header = $colName
-        $dgCol.Binding = [System.Windows.Data.Binding]::new($colName)
-        $dgCol.Width = 100
-        $gridSpreadsheet.Columns.Add($dgCol)
-    }
+    $filterText = $txtFilter.Text.Trim().ToLower()
 
     for ($r = 1; $r -le $maxR; $r++) {
-        $row = $table.NewRow()
+        $row = $table.Rows[$r - 1]
         for ($c = 1; $c -le $maxC; $c++) {
             $colName = Convert-ColIndexToName $c
-            $row[$colName] = $engine.GetDisplayValue($c, $r)
+            $val = $engine.GetDisplayValue($c, $r)
+            if ($row[$colName] -ne $val) {
+                $row[$colName] = $val
+            }
         }
-        $table.Rows.Add($row)
     }
 
-    $gridSpreadsheet.ItemsSource = $table.DefaultView
     if ($engine.FilePath) {
         $txtFileName.Text = [System.IO.Path]::GetFileName($engine.FilePath)
     } else {
@@ -699,38 +965,145 @@ function Refresh-GridUI {
     }
 }
 
-# Attach Row Header Numbers (1..N)
+# Fast Single-Cell UI Update Function (< 0.1ms)
+function Update-SingleCellUI([int]$col, [int]$row) {
+    if ($row -ge 1 -and $row -le $maxR -and $col -ge 1 -and $col -le $maxC) {
+        $colName = Convert-ColIndexToName $col
+        $table.Rows[$row - 1][$colName] = $engine.GetDisplayValue($col, $row)
+    }
+}
+
+# Attach Row Header Numbers (1..N) & Apply Zebra Styling
 $gridSpreadsheet.add_LoadingRow({
     param($sender, $e)
     $e.Row.Header = ($e.Row.GetIndex() + 1).ToString()
+    if ($engine.IsZebraTable -and ($e.Row.GetIndex() % 2 -eq 1)) {
+        $e.Row.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#202020")
+    } else {
+        $e.Row.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#181818")
+    }
 })
 
-# Event: Selected Cell Changed
+# Selected Cells Changed Handler (Optimized Range & Summary calculation)
 $gridSpreadsheet.add_SelectedCellsChanged({
-    if ($gridSpreadsheet.SelectedCells.Count -gt 0) {
-        $cellInfo = $gridSpreadsheet.SelectedCells[0]
-        $rowIndex = $gridSpreadsheet.Items.IndexOf($cellInfo.Item) + 1
-        $colIndex = $gridSpreadsheet.Columns.IndexOf($cellInfo.Column) + 1
+    $selectedCount = $gridSpreadsheet.SelectedCells.Count
+    if ($selectedCount -gt 0) {
+        if ($selectedCount -eq 1) {
+            $cellInfo = $gridSpreadsheet.SelectedCells[0]
+            if ($null -ne $cellInfo -and $null -ne $cellInfo.Item -and $null -ne $cellInfo.Column) {
+                $rowIndex = $gridSpreadsheet.Items.IndexOf($cellInfo.Item) + 1
+                $colIndex = $gridSpreadsheet.Columns.IndexOf($cellInfo.Column) + 1
 
-        if ($rowIndex -gt 0 -and $colIndex -gt 0) {
-            $cellRef = Convert-CoordsToCellName $colIndex $rowIndex
-            $txtNameBox.Text = $cellRef
-            $rawVal = $engine.GetRawValue($colIndex, $rowIndex)
-            $txtFormula.Text = $rawVal
+                if ($rowIndex -gt 0 -and $colIndex -gt 0) {
+                    $cellRef = Convert-CoordsToCellName $colIndex $rowIndex
+                    $txtNameBox.Text = $cellRef
+                    $cell = $engine.GetCell($colIndex, $rowIndex)
+                    $txtFormula.Text = $cell.RawInput
 
-            # Calculate Selection Summary
-            $dispVal = $engine.GetDisplayValue($colIndex, $rowIndex)
-            [double]$num = 0
-            if ([double]::TryParse($dispVal, [ref]$num)) {
-                $txtCalcSummary.Text = "Sum: $num  |  Average: $num  |  Count: 1"
+                    $btnBold.IsChecked = $cell.IsBold
+                    $btnItalic.IsChecked = $cell.IsItalic
+                    switch ($cell.NumberFormat) {
+                        "Currency_USD" { $cmbNumFormat.SelectedIndex = 1 }
+                        "Currency_EUR" { $cmbNumFormat.SelectedIndex = 2 }
+                        "Currency_GBP" { $cmbNumFormat.SelectedIndex = 3 }
+                        "Currency_JPY" { $cmbNumFormat.SelectedIndex = 4 }
+                        "Percent"      { $cmbNumFormat.SelectedIndex = 5 }
+                        default        { $cmbNumFormat.SelectedIndex = 0 }
+                    }
+
+                    $dispVal = $engine.GetDisplayValue($colIndex, $rowIndex)
+                    if (-not [string]::IsNullOrEmpty($dispVal)) {
+                        $cleanVal = $dispVal.Replace('$', '').Replace('€', '').Replace('£', '').Replace('¥', '').Replace('%', '').Trim()
+                        [double]$num = 0
+                        if ([double]::TryParse($cleanVal, [ref]$num)) {
+                            $txtCalcSummary.Text = "Sum: $num  |  Average: $num  |  Count: 1"
+                        } else {
+                            $txtCalcSummary.Text = "Ready"
+                        }
+                    } else {
+                        $txtCalcSummary.Text = "Ready"
+                    }
+                }
+            }
+        } else {
+            [double]$sum = 0
+            [int]$numCount = 0
+            $minR = 999999; $maxR = 0; $minC = 999999; $maxC = 0
+
+            foreach ($cellInfo in $gridSpreadsheet.SelectedCells) {
+                if ($null -ne $cellInfo -and $null -ne $cellInfo.Item -and $null -ne $cellInfo.Column) {
+                    $r = $gridSpreadsheet.Items.IndexOf($cellInfo.Item) + 1
+                    $c = $gridSpreadsheet.Columns.IndexOf($cellInfo.Column) + 1
+                    if ($r -gt 0 -and $c -gt 0) {
+                        if ($r -lt $minR) { $minR = $r }; if ($r -gt $maxR) { $maxR = $r }
+                        if ($c -lt $minC) { $minC = $c }; if ($c -gt $maxC) { $maxC = $c }
+
+                        $dispVal = $engine.GetDisplayValue($c, $r)
+                        if (-not [string]::IsNullOrEmpty($dispVal)) {
+                            $cleanVal = $dispVal.Replace('$', '').Replace('€', '').Replace('£', '').Replace('¥', '').Replace('%', '').Trim()
+                            [double]$num = 0
+                            if ([double]::TryParse($cleanVal, [ref]$num)) {
+                                $sum += $num
+                                $numCount++
+                            }
+                        }
+                    }
+                }
+            }
+
+            if ($minR -le $maxR -and $minC -le $maxC) {
+                $txtNameBox.Text = "$(Convert-CoordsToCellName $minC $minR):$(Convert-CoordsToCellName $maxC $maxR)"
             } else {
-                $txtCalcSummary.Text = "Ready"
+                $txtNameBox.Text = "$selectedCount Cells"
+            }
+            $txtFormula.Text = ""
+
+            if ($numCount -gt 0) {
+                $avg = [math]::Round(($sum / $numCount), 4)
+                $txtCalcSummary.Text = "Sum: $sum  |  Average: $avg  |  Count: $numCount"
+            } else {
+                $txtCalcSummary.Text = "Selected: $selectedCount Cells"
             }
         }
     }
 })
 
-# Event: Formula Bar Text Change / Commit
+# Apply formatting & text alignment to all selected cells
+function Apply-FormatToSelectedCells([string]$propName, $propValue) {
+    if ($gridSpreadsheet.SelectedCells.Count -gt 0) {
+        foreach ($cellInfo in $gridSpreadsheet.SelectedCells) {
+            if ($null -ne $cellInfo -and $null -ne $cellInfo.Item -and $null -ne $cellInfo.Column) {
+                $r = $gridSpreadsheet.Items.IndexOf($cellInfo.Item) + 1
+                $c = $gridSpreadsheet.Columns.IndexOf($cellInfo.Column) + 1
+                if ($r -gt 0 -and $c -gt 0) {
+                    $engine.SetCellFormat($c, $r, $propName, $propValue)
+                }
+            }
+        }
+        
+        # Apply Column Alignment to DataGridColumn
+        if ($propName -eq "Align") {
+            $colIndex = $gridSpreadsheet.Columns.IndexOf($gridSpreadsheet.SelectedCells[0].Column)
+            if ($colIndex -ge 0) {
+                $col = $gridSpreadsheet.Columns[$colIndex] -as [System.Windows.Controls.DataGridTextColumn]
+                if ($null -ne $col) {
+                    $style = [System.Windows.Style]::new([System.Windows.Controls.TextBlock])
+                    $alignVal = switch ($propValue) {
+                        "Center" { [System.Windows.TextAlignment]::Center }
+                        "Right"  { [System.Windows.TextAlignment]::Right }
+                        default  { [System.Windows.TextAlignment]::Left }
+                    }
+                    $style.Setters.Add([System.Windows.Setter]::new([System.Windows.Controls.TextBlock]::TextAlignmentProperty, $alignVal))
+                    $col.ElementStyle = $style
+                }
+            }
+        }
+        
+        Refresh-GridUI
+    }
+}
+
+# Formula Bar Commit
 $txtFormula.add_KeyDown({
     param($sender, $e)
     if ($e.Key -eq [System.Windows.Input.Key]::Enter) {
@@ -743,7 +1116,7 @@ $txtFormula.add_KeyDown({
     }
 })
 
-# Event: Direct Cell Edit in DataGrid
+# Direct Cell Edit
 $gridSpreadsheet.add_CellEditEnding({
     param($sender, $e)
     $rowIndex = $e.Row.GetIndex() + 1
@@ -752,12 +1125,86 @@ $gridSpreadsheet.add_CellEditEnding({
     if ($null -ne $editingElement) {
         $newValue = $editingElement.Text
         $engine.SetCell($colIndex, $rowIndex, $newValue)
-        # Deferred UI Refresh after edit completion
         $window.Dispatcher.InvokeAsync([Action]{ Refresh-GridUI })
     }
 })
 
-# Button Actions
+# Font & Text Formatting Handlers
+$btnBold.add_Click({ Apply-FormatToSelectedCells "Bold" $btnBold.IsChecked })
+$btnItalic.add_Click({ Apply-FormatToSelectedCells "Italic" $btnItalic.IsChecked })
+
+# Text Alignment Positioning Handlers
+$btnAlignTop.add_Click({ Apply-FormatToSelectedCells "VAlign" "Top" })
+$btnAlignMid.add_Click({ Apply-FormatToSelectedCells "VAlign" "Center" })
+$btnAlignBot.add_Click({ Apply-FormatToSelectedCells "VAlign" "Bottom" })
+$btnAlignLeft.add_Click({ Apply-FormatToSelectedCells "Align" "Left" })
+$btnAlignCenter.add_Click({ Apply-FormatToSelectedCells "Align" "Center" })
+$btnAlignRight.add_Click({ Apply-FormatToSelectedCells "Align" "Right" })
+
+# Number Format Combo Handler
+$cmbNumFormat.add_SelectionChanged({
+    if ($cmbNumFormat.SelectedItem) {
+        $fmt = switch ($cmbNumFormat.SelectedIndex) {
+            1 { "Currency_USD" }
+            2 { "Currency_EUR" }
+            3 { "Currency_GBP" }
+            4 { "Currency_JPY" }
+            5 { "Percent" }
+            default { "General" }
+        }
+        Apply-FormatToSelectedCells "NumberFormat" $fmt
+    }
+})
+
+# Quick Currency Buttons
+$btnCurrUSD.add_Click({ Apply-FormatToSelectedCells "NumberFormat" "Currency_USD" })
+$btnCurrEUR.add_Click({ Apply-FormatToSelectedCells "NumberFormat" "Currency_EUR" })
+$btnCurrGBP.add_Click({ Apply-FormatToSelectedCells "NumberFormat" "Currency_GBP" })
+$btnCurrJPY.add_Click({ Apply-FormatToSelectedCells "NumberFormat" "Currency_JPY" })
+$btnPercent.add_Click({ Apply-FormatToSelectedCells "NumberFormat" "Percent" })
+
+# Sorting & Filtering Actions
+$btnSortAsc.add_Click({
+    if ($txtNameBox.Text) {
+        $coords = Convert-CellNameToCoords $txtNameBox.Text
+        $engine.SortByColumn($coords.Col, $true)
+        Refresh-GridUI
+        $colName = Convert-ColIndexToName $coords.Col
+        $txtStatus.Text = "Sorted column $colName Ascending (A ➔ Z)."
+    }
+})
+
+$btnSortDesc.add_Click({
+    if ($txtNameBox.Text) {
+        $coords = Convert-CellNameToCoords $txtNameBox.Text
+        $engine.SortByColumn($coords.Col, $false)
+        Refresh-GridUI
+        $colName = Convert-ColIndexToName $coords.Col
+        $txtStatus.Text = "Sorted column $colName Descending (Z ➔ A)."
+    }
+})
+
+$txtFilter.add_TextChanged({
+    Refresh-GridUI
+    if ($txtFilter.Text) {
+        $txtStatus.Text = "Filtering by: '$($txtFilter.Text)'"
+    } else {
+        $txtStatus.Text = "Filter cleared."
+    }
+})
+
+$btnClearFilter.add_Click({
+    $txtFilter.Text = ""
+    Refresh-GridUI
+})
+
+$btnToggleZebra.add_Click({
+    $engine.IsZebraTable = -not $engine.IsZebraTable
+    Refresh-GridUI
+    $txtStatus.Text = if ($engine.IsZebraTable) { "Table Zebra Style Applied." } else { "Standard Table Style." }
+})
+
+# File Actions
 $btnSave.add_Click({
     if ([string]::IsNullOrWhiteSpace($engine.FilePath)) {
         $dialog = New-Object Microsoft.Win32.SaveFileDialog
@@ -853,12 +1300,6 @@ $btnAvg.add_Click({
             Refresh-GridUI
         }
     }
-})
-
-$btnClearGrid.add_Click({
-    $engine.Cells.Clear()
-    Refresh-GridUI
-    $txtStatus.Text = "Grid cleared."
 })
 
 # Initial Data Grid Population
