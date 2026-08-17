@@ -1,4 +1,4 @@
-# PowerCell Excel 📊
+# PowerCell📊
 
 > **PowerCell** is a lightweight, standalone, single-file PowerShell application that brings the native **Microsoft Excel GUI experience** to any Windows environment—without requiring Microsoft Office to be installed!
 
