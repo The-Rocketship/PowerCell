@@ -1,10 +1,10 @@
 ﻿<#
 .SYNOPSIS
-    PowerCell - Streamlined WPF Excel Spreadsheet Editor with Authentic Sort & Filter
+    PowerCell - Streamlined WPF Excel Spreadsheet Editor with System Font Selection
 .DESCRIPTION
-    A self-contained Windows WPF GUI spreadsheet application with an authentic Excel
-    Sort & Filter dropdown menu, column header click sorting, live filter bar,
-    multi-currency formatting, text positioning, and reactive formulas.
+    A self-contained Windows WPF GUI spreadsheet application dynamically populated with all
+    installed system fonts, font sizes, authentic Excel Sort & Filter menu, multi-currencies,
+    text positioning, and reactive formulas.
 .EXAMPLE
     .\PowerCell.ps1
 .EXAMPLE
@@ -96,6 +96,8 @@ class CellState {
     [bool]$IsFormula = $false
     [bool]$IsBold = $false
     [bool]$IsItalic = $false
+    [string]$FontFamily = "Segoe UI"
+    [double]$FontSize = 11.0
     [string]$Align = "Left"
     [string]$VAlign = "Center"
     [string]$NumberFormat = "General"
@@ -168,6 +170,8 @@ class PowerCellEngine {
         $cell = [CellState]::new()
         $cell.IsBold = $existing.IsBold
         $cell.IsItalic = $existing.IsItalic
+        $cell.FontFamily = $existing.FontFamily
+        $cell.FontSize = $existing.FontSize
         $cell.Align = $existing.Align
         $cell.VAlign = $existing.VAlign
         $cell.NumberFormat = $existing.NumberFormat
@@ -194,6 +198,8 @@ class PowerCellEngine {
         switch ($propName) {
             "Bold" { $cell.IsBold = [bool]$propValue }
             "Italic" { $cell.IsItalic = [bool]$propValue }
+            "FontFamily" { $cell.FontFamily = [string]$propValue }
+            "FontSize" { $cell.FontSize = [double]$propValue }
             "Align" { $cell.Align = [string]$propValue }
             "VAlign" { $cell.VAlign = [string]$propValue }
             "NumberFormat" { $cell.NumberFormat = [string]$propValue }
@@ -569,7 +575,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
     }
 }
 
-# Authentic Office Ribbon Layout
+# Authentic Office Ribbon Layout with Dynamic Font Selector
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -676,7 +682,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
                     </Grid>
                 </Border>
 
-                <!-- Group 2: Font -->
+                <!-- Group 2: Font (Dynamic System Fonts Dropdown) -->
                 <Border BorderBrush="#333333" BorderThickness="0,0,1,0" Padding="6,0,8,0" Margin="0,0,4,0">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -685,18 +691,8 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
                         </Grid.RowDefinitions>
                         <StackPanel Grid.Row="0" VerticalAlignment="Center">
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                <ComboBox Width="100" SelectedIndex="0" Margin="0,0,4,0">
-                                    <ComboBoxItem Content="Aptos Narrow"/>
-                                    <ComboBoxItem Content="Segoe UI"/>
-                                    <ComboBoxItem Content="Calibri"/>
-                                    <ComboBoxItem Content="Arial"/>
-                                </ComboBox>
-                                <ComboBox Width="45" SelectedIndex="1">
-                                    <ComboBoxItem Content="10"/>
-                                    <ComboBoxItem Content="11"/>
-                                    <ComboBoxItem Content="12"/>
-                                    <ComboBoxItem Content="14"/>
-                                </ComboBox>
+                                <ComboBox Name="cmbFontFamily" Width="130" Margin="0,0,4,0" ToolTip="Select System Font"/>
+                                <ComboBox Name="cmbFontSize" Width="45" ToolTip="Font Size"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <ToggleButton Name="btnBold" Content="B" Style="{StaticResource OfficeToggleBtn}" ToolTip="Bold"/>
@@ -900,6 +896,9 @@ $btnExportExcel     = $window.FindName("btnExportExcel")
 $btnBold            = $window.FindName("btnBold")
 $btnItalic          = $window.FindName("btnItalic")
 
+$cmbFontFamily      = $window.FindName("cmbFontFamily")
+$cmbFontSize        = $window.FindName("cmbFontSize")
+
 $btnAlignTop        = $window.FindName("btnAlignTop")
 $btnAlignMid        = $window.FindName("btnAlignMid")
 $btnAlignBot        = $window.FindName("btnAlignBot")
@@ -931,6 +930,23 @@ $btnAvg             = $window.FindName("btnAvg")
 $btnQuickSave       = $window.FindName("btnQuickSave")
 $btnQuickOpen       = $window.FindName("btnQuickOpen")
 $btnNewSheet        = $window.FindName("btnNewSheet")
+
+# Populate All Installed System Fonts
+$installedFonts = [System.Windows.Media.Fonts]::SystemFontFamilies | Select-Object -ExpandProperty Source | Sort-Object
+foreach ($fontName in $installedFonts) {
+    [void]$cmbFontFamily.Items.Add($fontName)
+}
+$cmbFontFamily.SelectedItem = "Segoe UI"
+if (-not $cmbFontFamily.SelectedItem -and $cmbFontFamily.Items.Count -gt 0) {
+    $cmbFontFamily.SelectedIndex = 0
+}
+
+# Populate Standard Font Sizes
+$fontSizes = @(8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 28, 36, 48, 72)
+foreach ($sz in $fontSizes) {
+    [void]$cmbFontSize.Items.Add($sz)
+}
+$cmbFontSize.SelectedItem = 11
 
 # DataTable & Columns Setup
 $table = [System.Data.DataTable]::new("Spreadsheet")
@@ -1005,6 +1021,13 @@ $gridSpreadsheet.add_SelectedCellsChanged({
 
                     $btnBold.IsChecked = $cell.IsBold
                     $btnItalic.IsChecked = $cell.IsItalic
+                    if ($cell.FontFamily -and $cmbFontFamily.Items.Contains($cell.FontFamily)) {
+                        $cmbFontFamily.SelectedItem = $cell.FontFamily
+                    }
+                    if ($cell.FontSize -gt 0) {
+                        $cmbFontSize.SelectedItem = [int]$cell.FontSize
+                    }
+
                     switch ($cell.NumberFormat) {
                         "Currency_USD" { $cmbNumFormat.SelectedIndex = 1 }
                         "Currency_EUR" { $cmbNumFormat.SelectedIndex = 2 }
@@ -1080,6 +1103,15 @@ function Apply-FormatToSelectedCells([string]$propName, $propValue) {
                 $c = $gridSpreadsheet.Columns.IndexOf($cellInfo.Column) + 1
                 if ($r -gt 0 -and $c -gt 0) {
                     $engine.SetCellFormat($c, $r, $propName, $propValue)
+
+                    # Update Column Font Family / Font Size directly
+                    $col = $gridSpreadsheet.Columns[$c - 1] -as [System.Windows.Controls.DataGridTextColumn]
+                    if ($null -ne $col) {
+                        switch ($propName) {
+                            "FontFamily" { $col.FontFamily = [System.Windows.Media.FontFamily]::new([string]$propValue) }
+                            "FontSize"   { $col.FontSize = [double]$propValue }
+                        }
+                    }
                 }
             }
         }
@@ -1134,6 +1166,18 @@ $gridSpreadsheet.add_CellEditEnding({
 # Font & Text Formatting Handlers
 $btnBold.add_Click({ Apply-FormatToSelectedCells "Bold" $btnBold.IsChecked })
 $btnItalic.add_Click({ Apply-FormatToSelectedCells "Italic" $btnItalic.IsChecked })
+
+$cmbFontFamily.add_SelectionChanged({
+    if ($cmbFontFamily.SelectedItem) {
+        Apply-FormatToSelectedCells "FontFamily" [string]$cmbFontFamily.SelectedItem
+    }
+})
+
+$cmbFontSize.add_SelectionChanged({
+    if ($cmbFontSize.SelectedItem) {
+        Apply-FormatToSelectedCells "FontSize" [double]$cmbFontSize.SelectedItem
+    }
+})
 
 # Text Alignment Positioning Handlers
 $btnAlignTop.add_Click({ Apply-FormatToSelectedCells "VAlign" "Top" })
