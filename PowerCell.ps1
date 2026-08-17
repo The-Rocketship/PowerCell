@@ -551,7 +551,7 @@ function Export-PowerCellExcel([PowerCellEngine]$engine, [string]$filePath) {
     } catch {
         $csvPath = [System.IO.Path]::ChangeExtension($filePath, ".csv")
         Export-PowerCellCsv -engine $engine -filePath $csvPath -delimiter ","
-        throw "Excel export failed (Excel not installed). Saved spreadsheet as CSV to: $csvPath"
+        throw "Excel (COM) is not installed on this system.`nSpreadsheet has been exported as CSV to:`n$csvPath"
     }
 }
 
@@ -569,7 +569,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
     }
 }
 
-# Authentic Office Ribbon Layout with Sort & Filter Dropdown
+# Authentic Office Ribbon Layout
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -1251,6 +1251,24 @@ $btnSave.add_Click({
 })
 
 $btnQuickSave.add_Click({ $btnSave.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Button]::ClickEvent)) })
+
+$btnExportExcel.add_Click({
+    $dialog = New-Object Microsoft.Win32.SaveFileDialog
+    $dialog.Filter = "Excel Workbooks (*.xlsx)|*.xlsx|CSV Files (*.csv)|*.csv|All Files (*.*)|*.*"
+    $dialog.DefaultExt = ".xlsx"
+    $dialog.FileName = if ($engine.FilePath) { [System.IO.Path]::ChangeExtension([System.IO.Path]::GetFileName($engine.FilePath), ".xlsx") } else { "ExportedSpreadsheet.xlsx" }
+    
+    if ($dialog.ShowDialog()) {
+        try {
+            Export-PowerCellFile -engine $engine -filePath $dialog.FileName
+            $txtStatus.Text = "Exported successfully to $($dialog.FileName)"
+            $txtFileName.Text = [System.IO.Path]::GetFileName($dialog.FileName)
+            [System.Windows.MessageBox]::Show("Spreadsheet successfully exported to:`n$($dialog.FileName)", "Export Complete", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+        } catch {
+            [System.Windows.MessageBox]::Show("Export Error: $_", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+        }
+    }
+})
 
 $btnOpen.add_Click({
     $dialog = New-Object Microsoft.Win32.OpenFileDialog
