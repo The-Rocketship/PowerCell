@@ -63,14 +63,7 @@ cd C:\dev\PowerCell
 ```
 PowerCell/
 ├── PowerCell.ps1     # 100% Standalone Single-File Application
-├── powercell.cmd     # Double-click Batch Launcher
-├── sample_data.csv   # Sample dataset for quick testing
 ├── screenshot.png    # GUI Screenshot
-└── tests/            # Automated Unit Test Suite
-    ├── TestEngine.ps1
-    └── TestFormats.ps1
-```
-
 ---
 
 ## 🧪 Testing
