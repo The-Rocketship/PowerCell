@@ -22,7 +22,7 @@
 - **Reactive Formula Engine**: Dynamic formula recalculation starting with `=`, supporting:
   - Aggregates: `=SUM(A1:A10)`, `=AVG(B1:B10)`, `=COUNT(C1:C10)`, `=MIN(...)`, `=MAX(...)`.
   - Expressions: `=A1 + B2 * 1.5`, `=(C1 - C2) / 10`.
-- **Multi-Format Support**: Directly open, edit, and save `.csv`, `.tsv`, and `.xlsx` files.
+- **Multi-Format Support**: Directly open, edit, and save `.csv`, `.tsv`, and `.xlsx` files. CSV, TSV, and TXT workflows do not require Microsoft Excel; `.xlsx` and `.xls` workflows use Excel COM automation and therefore require Excel to be installed.
 - **Single-File Distribution**: Portable script in `PowerCell.ps1` with zero external dependencies. Double-click `powercell.cmd` to run immediately!
 
 ---
@@ -32,6 +32,7 @@
 ### Prerequisites
 - **Windows 10 / 11** or **Windows Server**
 - **PowerShell 5.1+** or **PowerShell 7+**
+- **Microsoft Excel** is optional for CSV, TSV, and TXT files, but required to open or export `.xlsx` and `.xls` files.
 
 ### Running PowerCell
 
@@ -48,6 +49,8 @@ cd C:\dev\PowerCell
 # Open a CSV or Excel file directly
 .\PowerCell.ps1 sample_data.csv
 ```
+
+When Excel is not installed, PowerCell can still create and edit blank sheets and CSV, TSV, or TXT files. Opening `.xlsx` or `.xls` files will fail, and exporting to `.xlsx` falls back to a CSV file.
 
 ---
 
