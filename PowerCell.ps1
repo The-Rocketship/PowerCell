@@ -653,7 +653,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Excel - PowerCell Spreadsheet" Height="800" Width="1360"
+        Title="PowerCell Spreadsheet" Height="800" Width="1360"
         WindowStartupLocation="CenterScreen" Background="#262626" FontFamily="Segoe UI">
     <Window.Resources>
         <Style TargetType="Button" x:Key="RibbonTabBtn">
@@ -723,7 +723,7 @@ if (-not [string]::IsNullOrWhiteSpace($FilePath)) {
             <DockPanel LastChildFill="True">
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
                     <TextBlock Text="📗" FontSize="15" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="Excel - PowerCell" Foreground="#FFFFFF" FontWeight="Bold" FontSize="14" Margin="0,0,15,0"/>
+                    <TextBlock Text="PowerCell" Foreground="#FFFFFF" FontWeight="Bold" FontSize="14" Margin="0,0,15,0"/>
                     <TextBlock Name="txtFileName" Text="Untitled.csv" Foreground="#DFF6DD" FontSize="12" VerticalAlignment="Center"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
