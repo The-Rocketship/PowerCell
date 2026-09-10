@@ -128,7 +128,7 @@ function Convert-CoordsToCellName([int]$col, [int]$row) {
     return "$colName$row"
 }
 
-function Parse-CellRange([string]$rangeStr) {
+function Convert-CellRange([string]$rangeStr) {
     $rangeStr = $rangeStr.Trim().ToUpper()
     if ($rangeStr.Contains(':')) {
         $parts = $rangeStr -split ':'
@@ -284,7 +284,7 @@ class PowerCellEngine {
     }
 
     [double[]] GetNumericValuesFromRange([string]$rangeStr) {
-        $range = Parse-CellRange $rangeStr
+        $range = Convert-CellRange $rangeStr
         $values = @()
         for ($r = $range.MinRow; $r -le $range.MaxRow; $r++) {
             for ($c = $range.MinCol; $c -le $range.MaxCol; $c++) {
@@ -1131,9 +1131,7 @@ for ($r = 1; $r -le $maxR; $r++) {
 $gridSpreadsheet.ItemsSource = $table.DefaultView
 
 # Fast Data Refresh Function
-function Refresh-GridUI {
-    $filterText = $txtFilter.Text.Trim().ToLower()
-
+function Update-GridUI {
     for ($r = 1; $r -le $maxR; $r++) {
         $row = $table.Rows[$r - 1]
         for ($c = 1; $c -le $maxC; $c++) {
@@ -1153,7 +1151,7 @@ function Refresh-GridUI {
 }
 
 # Dynamic Table Theme Colors
-function Apply-TableTheme([string]$themeName) {
+function Set-TableTheme([string]$themeName) {
     $engine.TableTheme = $themeName
     $brushConv = New-Object System.Windows.Media.BrushConverter
     
@@ -1176,12 +1174,12 @@ function Apply-TableTheme([string]$themeName) {
             }
         }
     }
-    Refresh-GridUI
+    Update-GridUI
 }
 
 # Attach Row Header Numbers (1..N) & Apply Table Colors
 $gridSpreadsheet.add_LoadingRow({
-    param($sender, $e)
+    param($eventSource, $e)
     $e.Row.Header = ($e.Row.GetIndex() + 1).ToString()
     $brushConv = New-Object System.Windows.Media.BrushConverter
     $oddBg = switch ($engine.TableTheme) {
@@ -1290,7 +1288,7 @@ $gridSpreadsheet.add_SelectedCellsChanged({
 })
 
 # Apply formatting & cell background colors to selected cells
-function Apply-FormatToSelectedCells([string]$propName, $propValue) {
+function Set-SelectedCellFormat([string]$propName, $propValue) {
     if ($gridSpreadsheet.SelectedCells.Count -gt 0) {
         foreach ($cellInfo in $gridSpreadsheet.SelectedCells) {
             if ($null -ne $cellInfo -and $null -ne $cellInfo.Item -and $null -ne $cellInfo.Column) {
@@ -1339,12 +1337,12 @@ function Apply-FormatToSelectedCells([string]$propName, $propValue) {
             }
         }
         
-        Refresh-GridUI
+        Update-GridUI
     }
 }
 
 # Apply Cell Preset Style (Good, Bad, Neutral, Accent) with Direct Container Rendering
-function Apply-CellStylePreset([string]$bgHex, [string]$fgHex) {
+function Set-CellStylePreset([string]$bgHex, [string]$fgHex) {
     if ($gridSpreadsheet.SelectedCells.Count -gt 0) {
         $brushConv = New-Object System.Windows.Media.BrushConverter
         
@@ -1385,18 +1383,18 @@ function Apply-CellStylePreset([string]$bgHex, [string]$fgHex) {
                 }
             }
         }
-        Refresh-GridUI
+        Update-GridUI
     }
 }
 
 # Commit Formula Input
 $txtFormula.add_KeyDown({
-    param($sender, $e)
+    param($eventSource, $e)
     if ($e.Key -eq [System.Windows.Input.Key]::Enter) {
         if ($txtNameBox.Text) {
             $coords = Convert-CellNameToCoords $txtNameBox.Text
             $engine.SetCell($coords.Col, $coords.Row, $txtFormula.Text)
-            Refresh-GridUI
+            Update-GridUI
             $txtStatus.Text = "Cell $($txtNameBox.Text) updated."
         }
     }
@@ -1404,26 +1402,26 @@ $txtFormula.add_KeyDown({
 
 # Direct Cell Edit
 $gridSpreadsheet.add_CellEditEnding({
-    param($sender, $e)
+    param($eventSource, $e)
     $rowIndex = $e.Row.GetIndex() + 1
     $colIndex = $e.Column.DisplayIndex + 1
     $editingElement = $e.EditingElement -as [System.Windows.Controls.TextBox]
     if ($null -ne $editingElement) {
         $newValue = $editingElement.Text
         $engine.SetCell($colIndex, $rowIndex, $newValue)
-        $window.Dispatcher.InvokeAsync([Action]{ Refresh-GridUI })
+        $window.Dispatcher.InvokeAsync([Action]{ Update-GridUI })
     }
 })
 
 # Font & Text Formatting Handlers
-$btnBold.add_Click({ Apply-FormatToSelectedCells "Bold" $btnBold.IsChecked })
-$btnItalic.add_Click({ Apply-FormatToSelectedCells "Italic" $btnItalic.IsChecked })
+$btnBold.add_Click({ Set-SelectedCellFormat "Bold" $btnBold.IsChecked })
+$btnItalic.add_Click({ Set-SelectedCellFormat "Italic" $btnItalic.IsChecked })
 
 $cmbFontFamily.add_SelectionChanged({
     if ($cmbFontFamily.SelectedItem) {
         $fontName = if ($cmbFontFamily.SelectedItem -is [System.Windows.Controls.ComboBoxItem]) { $cmbFontFamily.SelectedItem.Content.ToString() } else { $cmbFontFamily.SelectedItem.ToString() }
         if (-not [string]::IsNullOrEmpty($fontName)) {
-            Apply-FormatToSelectedCells "FontFamily" $fontName
+            Set-SelectedCellFormat "FontFamily" $fontName
         }
     }
 })
@@ -1433,47 +1431,47 @@ $cmbFontSize.add_SelectionChanged({
         $valStr = if ($cmbFontSize.SelectedItem -is [System.Windows.Controls.ComboBoxItem]) { $cmbFontSize.SelectedItem.Content.ToString() } else { $cmbFontSize.SelectedItem.ToString() }
         [double]$fontSize = 0
         if ([double]::TryParse($valStr, [ref]$fontSize)) {
-            Apply-FormatToSelectedCells "FontSize" $fontSize
+            Set-SelectedCellFormat "FontSize" $fontSize
         }
     }
 })
 
 # Fill Color Palette Menu Handlers
 $btnFillColor.add_Click({ $btnFillColor.ContextMenu.IsOpen = $true })
-$fillYellow.add_Click({ Apply-CellStylePreset "#FFFF00" "#000000" })
-$fillGreen.add_Click({ Apply-CellStylePreset "#D4EDDA" "#155724" })
-$fillRed.add_Click({ Apply-CellStylePreset "#F8D7DA" "#721C24" })
-$fillBlue.add_Click({ Apply-CellStylePreset "#D0E1FD" "#0C5460" })
-$fillOrange.add_Click({ Apply-CellStylePreset "#FFE5D0" "#856404" })
-$fillPurple.add_Click({ Apply-CellStylePreset "#EAD0F6" "#383D41" })
-$fillNoFill.add_Click({ Apply-CellStylePreset "" "" })
+$fillYellow.add_Click({ Set-CellStylePreset "#FFFF00" "#000000" })
+$fillGreen.add_Click({ Set-CellStylePreset "#D4EDDA" "#155724" })
+$fillRed.add_Click({ Set-CellStylePreset "#F8D7DA" "#721C24" })
+$fillBlue.add_Click({ Set-CellStylePreset "#D0E1FD" "#0C5460" })
+$fillOrange.add_Click({ Set-CellStylePreset "#FFE5D0" "#856404" })
+$fillPurple.add_Click({ Set-CellStylePreset "#EAD0F6" "#383D41" })
+$fillNoFill.add_Click({ Set-CellStylePreset "" "" })
 
 # Cell Styles Palette Menu Handlers
 $btnCellStyles.add_Click({ $btnCellStyles.ContextMenu.IsOpen = $true })
-$styleGood.add_Click({ Apply-CellStylePreset "#D4EDDA" "#155724" })      # Good (Soft Green)
-$styleBad.add_Click({ Apply-CellStylePreset "#F8D7DA" "#721C24" })       # Bad (Soft Red)
-$styleNeutral.add_Click({ Apply-CellStylePreset "#FFF3CD" "#856404" })   # Neutral (Soft Yellow)
-$styleAccent1.add_Click({ Apply-CellStylePreset "#0078D4" "#FFFFFF" })   # Accent 1 (Blue)
-$styleAccent2.add_Click({ Apply-CellStylePreset "#D13438" "#FFFFFF" })   # Accent 2 (Orange)
-$styleAccent3.add_Click({ Apply-CellStylePreset "#107C41" "#FFFFFF" })   # Accent 3 (Green)
-$styleAccent4.add_Click({ Apply-CellStylePreset "#881798" "#FFFFFF" })   # Accent 4 (Purple)
-$styleNormal.add_Click({ Apply-CellStylePreset "" "" })                 # Reset Normal
+$styleGood.add_Click({ Set-CellStylePreset "#D4EDDA" "#155724" })      # Good (Soft Green)
+$styleBad.add_Click({ Set-CellStylePreset "#F8D7DA" "#721C24" })       # Bad (Soft Red)
+$styleNeutral.add_Click({ Set-CellStylePreset "#FFF3CD" "#856404" })   # Neutral (Soft Yellow)
+$styleAccent1.add_Click({ Set-CellStylePreset "#0078D4" "#FFFFFF" })   # Accent 1 (Blue)
+$styleAccent2.add_Click({ Set-CellStylePreset "#D13438" "#FFFFFF" })   # Accent 2 (Orange)
+$styleAccent3.add_Click({ Set-CellStylePreset "#107C41" "#FFFFFF" })   # Accent 3 (Green)
+$styleAccent4.add_Click({ Set-CellStylePreset "#881798" "#FFFFFF" })   # Accent 4 (Purple)
+$styleNormal.add_Click({ Set-CellStylePreset "" "" })                 # Reset Normal
 
 # Format as Table Menu Handlers
 $btnFormatTable.add_Click({ $btnFormatTable.ContextMenu.IsOpen = $true })
-$tblThemeGreen.add_Click({ Apply-TableTheme "Green"; $txtStatus.Text = "Applied Green Office Table Theme." })
-$tblThemeBlue.add_Click({ Apply-TableTheme "Blue"; $txtStatus.Text = "Applied Ocean Blue Table Theme." })
-$tblThemeOrange.add_Click({ Apply-TableTheme "Orange"; $txtStatus.Text = "Applied Dark Amber Table Theme." })
-$tblThemePurple.add_Click({ Apply-TableTheme "Purple"; $txtStatus.Text = "Applied Royal Purple Table Theme." })
-$tblThemeSteel.add_Click({ Apply-TableTheme "Steel"; $txtStatus.Text = "Applied Dark Steel Table Theme." })
+$tblThemeGreen.add_Click({ Set-TableTheme "Green"; $txtStatus.Text = "Applied Green Office Table Theme." })
+$tblThemeBlue.add_Click({ Set-TableTheme "Blue"; $txtStatus.Text = "Applied Ocean Blue Table Theme." })
+$tblThemeOrange.add_Click({ Set-TableTheme "Orange"; $txtStatus.Text = "Applied Dark Amber Table Theme." })
+$tblThemePurple.add_Click({ Set-TableTheme "Purple"; $txtStatus.Text = "Applied Royal Purple Table Theme." })
+$tblThemeSteel.add_Click({ Set-TableTheme "Steel"; $txtStatus.Text = "Applied Dark Steel Table Theme." })
 
 # Text Alignment Positioning Handlers
-$btnAlignTop.add_Click({ Apply-FormatToSelectedCells "VAlign" "Top" })
-$btnAlignMid.add_Click({ Apply-FormatToSelectedCells "VAlign" "Center" })
-$btnAlignBot.add_Click({ Apply-FormatToSelectedCells "VAlign" "Bottom" })
-$btnAlignLeft.add_Click({ Apply-FormatToSelectedCells "Align" "Left" })
-$btnAlignCenter.add_Click({ Apply-FormatToSelectedCells "Align" "Center" })
-$btnAlignRight.add_Click({ Apply-FormatToSelectedCells "Align" "Right" })
+$btnAlignTop.add_Click({ Set-SelectedCellFormat "VAlign" "Top" })
+$btnAlignMid.add_Click({ Set-SelectedCellFormat "VAlign" "Center" })
+$btnAlignBot.add_Click({ Set-SelectedCellFormat "VAlign" "Bottom" })
+$btnAlignLeft.add_Click({ Set-SelectedCellFormat "Align" "Left" })
+$btnAlignCenter.add_Click({ Set-SelectedCellFormat "Align" "Center" })
+$btnAlignRight.add_Click({ Set-SelectedCellFormat "Align" "Right" })
 
 # Number Format Combo Handler
 $cmbNumFormat.add_SelectionChanged({
@@ -1486,16 +1484,16 @@ $cmbNumFormat.add_SelectionChanged({
             5 { "Percent" }
             default { "General" }
         }
-        Apply-FormatToSelectedCells "NumberFormat" $fmt
+        Set-SelectedCellFormat "NumberFormat" $fmt
     }
 })
 
 # Quick Currency Buttons
-$btnCurrUSD.add_Click({ Apply-FormatToSelectedCells "NumberFormat" "Currency_USD" })
-$btnCurrEUR.add_Click({ Apply-FormatToSelectedCells "NumberFormat" "Currency_EUR" })
-$btnCurrGBP.add_Click({ Apply-FormatToSelectedCells "NumberFormat" "Currency_GBP" })
-$btnCurrJPY.add_Click({ Apply-FormatToSelectedCells "NumberFormat" "Currency_JPY" })
-$btnPercent.add_Click({ Apply-FormatToSelectedCells "NumberFormat" "Percent" })
+$btnCurrUSD.add_Click({ Set-SelectedCellFormat "NumberFormat" "Currency_USD" })
+$btnCurrEUR.add_Click({ Set-SelectedCellFormat "NumberFormat" "Currency_EUR" })
+$btnCurrGBP.add_Click({ Set-SelectedCellFormat "NumberFormat" "Currency_GBP" })
+$btnCurrJPY.add_Click({ Set-SelectedCellFormat "NumberFormat" "Currency_JPY" })
+$btnPercent.add_Click({ Set-SelectedCellFormat "NumberFormat" "Percent" })
 
 # Authentic Sort & Filter Ribbon Menu
 $btnSortFilterMenu.add_Click({
@@ -1506,7 +1504,7 @@ $menuSortAsc.add_Click({
     if ($txtNameBox.Text) {
         $coords = Convert-CellNameToCoords $txtNameBox.Text
         $engine.SortByColumn($coords.Col, $true)
-        Refresh-GridUI
+        Update-GridUI
         $colName = Convert-ColIndexToName $coords.Col
         $txtStatus.Text = "Sorted column $colName Ascending (A to Z)."
     }
@@ -1516,7 +1514,7 @@ $menuSortDesc.add_Click({
     if ($txtNameBox.Text) {
         $coords = Convert-CellNameToCoords $txtNameBox.Text
         $engine.SortByColumn($coords.Col, $false)
-        Refresh-GridUI
+        Update-GridUI
         $colName = Convert-ColIndexToName $coords.Col
         $txtStatus.Text = "Sorted column $colName Descending (Z to A)."
     }
@@ -1524,27 +1522,27 @@ $menuSortDesc.add_Click({
 
 $menuClearFilter.add_Click({
     $txtFilter.Text = ""
-    Refresh-GridUI
+    Update-GridUI
     $txtStatus.Text = "Filter cleared."
 })
 
 # Column Header Click Sorting Handler
 $gridSpreadsheet.add_Sorting({
-    param($sender, $e)
+    param($eventSource, $e)
     $e.Handled = $true
     $colIndex = $gridSpreadsheet.Columns.IndexOf($e.Column) + 1
     if ($colIndex -gt 0) {
         $sortAscending = ($e.Column.SortDirection -ne [System.ComponentModel.ListSortDirection]::Ascending)
         $engine.SortByColumn($colIndex, $sortAscending)
         $e.Column.SortDirection = if ($sortAscending) { [System.ComponentModel.ListSortDirection]::Ascending } else { [System.ComponentModel.ListSortDirection]::Descending }
-        Refresh-GridUI
+        Update-GridUI
         $colName = Convert-ColIndexToName $colIndex
         $txtStatus.Text = "Sorted column $colName $(if ($sortAscending) { 'A to Z' } else { 'Z to A' })."
     }
 })
 
 $txtFilter.add_TextChanged({
-    Refresh-GridUI
+    Update-GridUI
     if ($txtFilter.Text) {
         $txtStatus.Text = "Filtering by: '$($txtFilter.Text)'"
     } else {
@@ -1554,7 +1552,7 @@ $txtFilter.add_TextChanged({
 
 $btnClearFilter.add_Click({
     $txtFilter.Text = ""
-    Refresh-GridUI
+    Update-GridUI
     $txtStatus.Text = "Filter cleared."
 })
 
@@ -1608,7 +1606,7 @@ $btnOpen.add_Click({
             $engine.FilePath = $newEngine.FilePath
             $engine.MaxRow = $newEngine.MaxRow
             $engine.MaxCol = $newEngine.MaxCol
-            Refresh-GridUI
+            Update-GridUI
             $txtStatus.Text = "Opened file $($dialog.FileName)"
         } catch {
             [System.Windows.MessageBox]::Show("Open Error: $_", "Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
@@ -1623,7 +1621,7 @@ $btnNewSheet.add_Click({
     $engine.FilePath = ""
     $engine.MaxRow = 50
     $engine.MaxCol = 26
-    Refresh-GridUI
+    Update-GridUI
     $txtStatus.Text = "New Spreadsheet Created."
 })
 
@@ -1631,7 +1629,7 @@ $btnInsertRow.add_Click({
     if ($txtNameBox.Text) {
         $coords = Convert-CellNameToCoords $txtNameBox.Text
         $engine.InsertRow($coords.Row)
-        Refresh-GridUI
+        Update-GridUI
         $txtStatus.Text = "Inserted row at $($coords.Row)."
     }
 })
@@ -1640,7 +1638,7 @@ $btnDeleteRow.add_Click({
     if ($txtNameBox.Text) {
         $coords = Convert-CellNameToCoords $txtNameBox.Text
         $engine.DeleteRow($coords.Row)
-        Refresh-GridUI
+        Update-GridUI
         $txtStatus.Text = "Deleted row $($coords.Row)."
     }
 })
@@ -1655,7 +1653,7 @@ $btnSum.add_Click({
             $endRef = "$colName$($targetRow - 1)"
             $txtFormula.Text = "=SUM($($startRef):$($endRef))"
             $engine.SetCell($coords.Col, $targetRow, $txtFormula.Text)
-            Refresh-GridUI
+            Update-GridUI
         }
     }
 })
@@ -1670,13 +1668,13 @@ $btnAvg.add_Click({
             $endRef = "$colName$($targetRow - 1)"
             $txtFormula.Text = "=AVG($($startRef):$($endRef))"
             $engine.SetCell($coords.Col, $targetRow, $txtFormula.Text)
-            Refresh-GridUI
+            Update-GridUI
         }
     }
 })
 
 # Initial Data Grid Population
-Refresh-GridUI
+Update-GridUI
 
 # Show WPF Window
 [void]$window.ShowDialog()
